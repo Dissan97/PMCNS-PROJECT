@@ -25,7 +25,7 @@ Server B,of the private cloud infrastructure. the figure below shows the layout 
 data center with the paths followed by the requests and the relative Classes. The <br>
 sequence of execution of the paths for each request coincides with the numbers of <br>
 the Class IDs. <br>
-<img src="imgs/system.png">
+<img src="imgs/system.png"> <br>
 Server A is a multicore system that execute several services of Front-End. <br>
 Among them are:customer authentication,administrative and CRM processes,inter <br>
 action with the payment service (for the strong authentication for payments), check <br>
