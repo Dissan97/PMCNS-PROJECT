@@ -24,7 +24,7 @@
     data center with the paths followed by the requests and the relative Classes. The <br>
     sequence of execution of the paths for each request coincides with the numbers of <br>
     the Class IDs. <br>
-    ![imgs/system.png](imgs/system.png)
+    ![system](https://github.com/Dissan97/PMCNS-PROJECT/blob/master/imgs/system.png)
     Server A is a multicore system that execute several services of Front-End. <br>
     Among them are:customer authentication,administrative and CRM processes,inter <br>
     action with the payment service (for the strong authentication for payments), check <br>
