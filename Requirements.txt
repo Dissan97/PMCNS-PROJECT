@@ -1,0 +1,26 @@
+# Core scientific computing and data handling
+numpy
+pandas
+
+# CSV parsing and date handling (built-in with pandas, but added for completeness)
+python-dateutil
+
+# Simulation framework
+simpy
+
+# Plotting and visualization
+matplotlib
+seaborn
+plotly
+
+# Optional: Interactive dashboards (optional but useful)
+dash
+
+# Optional: Save images
+Pillow
+
+# Jupyter Notebook and extensions
+jupyterlab
+notebook
+ipykernel
+ipywidgets
