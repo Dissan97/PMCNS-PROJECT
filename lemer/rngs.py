@@ -37,19 +37,20 @@
 
 from time import time
 
+
 class MultiStreamRNG:
     """
     Multi-stream Lehmer random number generator (Park & Miller).
     Provides 256 independent streams.
     """
 
-    #global consts
-    MODULUS = 2147483647 #/* DON'T CHANGE THIS VALUE                  */
-    MULTIPLIER = 48271      #/* DON'T CHANGE THIS VALUE                  */
-    CHECK = 399268537  #/* DON'T CHANGE THIS VALUE                  */
-    STREAMS = 256        #/* # of streams, DON'T CHANGE THIS VALUE    */
-    A256 = 22925      #/* jump multiplier, DON'T CHANGE THIS VALUE */
-    DEFAULT = 123456789  #/* initial seed, use 0 < DEFAULT < MODULUS  */
+    # global consts
+    MODULUS = 2147483647  # /* DON'T CHANGE THIS VALUE                  */
+    MULTIPLIER = 48271  # /* DON'T CHANGE THIS VALUE                  */
+    CHECK = 399268537  # /* DON'T CHANGE THIS VALUE                  */
+    STREAMS = 256  # /* # of streams, DON'T CHANGE THIS VALUE    */
+    A256 = 22925  # /* jump multiplier, DON'T CHANGE THIS VALUE */
+    DEFAULT = 123456789  # /* initial seed, use 0 < DEFAULT < MODULUS  */
 
     def __init__(self, seed_val=None):
         """
@@ -69,19 +70,21 @@ class MultiStreamRNG:
             seed_val = self.DEFAULT
         self.plant_seeds(seed_val)
 
-    def random(self):
+    def random(self, stream=0):
         """
         Returns a pseudo-random float in (0,1).
         """
         Q = self.MODULUS // self.MULTIPLIER
         R = self.MODULUS % self.MULTIPLIER
-        s = self.seed[self.stream]
+        stream = stream % self.STREAMS
+        s = self.seed[stream]
         t = self.MULTIPLIER * (s % Q) - R * (s // Q)
+
         if t > 0:
-            self.seed[self.stream] = t
+            self.seed[stream] = t
         else:
-            self.seed[self.stream] = t + self.MODULUS
-        return self.seed[self.stream] / self.MODULUS
+            self.seed[stream] = t + self.MODULUS
+        return self.seed[stream] / self.MODULUS
 
     def plant_seeds(self, x):
         """
@@ -89,7 +92,6 @@ class MultiStreamRNG:
         The sequence of planted states is separated one from the next by
         8,367,782 calls to Random
         """
-        from time import time
 
         Q = self.MODULUS // self.A256
         R = self.MODULUS % self.A256
@@ -101,7 +103,7 @@ class MultiStreamRNG:
         self.put_seed(x)
         # generate seeds for other streams
         for j in range(1, self.STREAMS):
-            prev = self.seed[j-1]
+            prev = self.seed[j - 1]
             t = self.A256 * (prev % Q) - R * (prev // Q)
             self.seed[j] = t if t > 0 else t + self.MODULUS
         # restore current stream
@@ -115,7 +117,6 @@ class MultiStreamRNG:
         if x < 0 then the initial seed is obtained from the system clock
         if x = 0 then the initial seed is to be supplied interactively
         """
-        from time import time
 
         if x > 0:
             x = x % self.MODULUS
@@ -132,17 +133,17 @@ class MultiStreamRNG:
         self.seed[self.stream] = int(x)
 
     def get_seed(self):
-        """Retrun the current seed"""
+        """Return the current seed"""
         return self.seed[self.stream]
 
     def select_stream(self, index):
-        """Seleziona il flusso corrente."""
+        """select the current seed."""
         self.stream = index % self.STREAMS
         if not self.initialized and self.stream != 0:
             self.plant_seeds(self.DEFAULT)
 
     def test_random(self):
-        """Esegue un test di correttezza dell'implementazione."""
+        """Testing the prng"""
         # Test stream 0
         self.select_stream(0)
         self.put_seed(1)
@@ -154,6 +155,6 @@ class MultiStreamRNG:
         self.plant_seeds(1)
         ok = ok and (self.get_seed() == self.A256)
         if ok:
-            print("Implementazione corretta.")
+            print("The implementation is correct")
         else:
-            print("Errore nell'implementazione.")
+            print("Error in implementation")

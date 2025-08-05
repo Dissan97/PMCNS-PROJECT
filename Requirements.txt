@@ -1,6 +1,7 @@
 # Core scientific computing and data handling
 numpy
 pandas
+scipy
 
 # CSV parsing and date handling (built-in with pandas, but added for completeness)
 python-dateutil
