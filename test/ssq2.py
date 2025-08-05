@@ -26,11 +26,22 @@ class SSQ2:
       
     
     def get_arrival(self) -> float:
+        """
+        inter-arrival time = 2 sec;
+        lambda = 1/(time) = 0.5;
+
+        """
         return idfExponential(m=2.0, u=self.stream.random(stream=0))
     
     # Still not supporting streams
     def get_service(self) -> float:
+        """
+        E(s) = 1.5 sec;
+        mu=1/(E(s)) = 0.6666667;
+
+        """
         return idfUniform(a=1.0, b=2.0, u=self.stream.random(stream=0))
+
     
     def run(self, start=0, last=1000):
         START = start
