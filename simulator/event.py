@@ -4,6 +4,14 @@ class Event:
     _ids = itertools.count()
 
     def __init__(self, time, event_type, server=None, job_id=None, job_class=None):
+        """
+            Event constructor
+            :param time: the time of the event
+            :param event_type: the type of event ARRIVAL | DEPARTURE
+            :param server: the server that manage the event
+            :param job_id: the job id unique for this event
+            :param job_class: the job class | class-1 | class-2 | class-3
+        """
         self.id = next(Event._ids)
         self.time = time
         self.event_type = event_type  # "ARRIVAL" o "DEPARTURE"
