@@ -73,4 +73,47 @@ class BusytimeEstimator:
         if self.pop == 0 and self.busy:
             self.total += s.current_time - self.last
             self.busy = False
+            
     def get_busy_time(self): return self.total
+    
+    def finalize(self, current_time):
+        """Chiama questo metodo una sola volta, a fine simulazione,
+        per contare l’eventuale periodo busy ancora aperto."""
+        if self.pop > 0 and self.busy:
+            self.total += current_time - self.last
+            self.busy = False
+
+# ────────────────────────────────────────────────────────────────
+# Versioni filtrate per un singolo nodo
+class _NodeFilterMixin:
+    def __init__(self, sched, node):
+        self.node = node
+        super().__init__(sched)
+
+class ResponseTimeEstimatorNode(_NodeFilterMixin, ResponseTimeEstimator):
+    def _on_arr(self, e, s):
+        if e.server == self.node and e.job_id is not None:
+            self.arr[e.job_id] = e.time
+    def _on_dep(self, e, s):
+        if e.server == self.node:
+            super()._on_dep(e, s)
+
+class PopulationEstimatorNode(_NodeFilterMixin, PopulationEstimator):
+    def _inc(self, e, s):
+        if e.server == self.node: super()._inc(e, s)
+    def _dec(self, e, s):
+        if e.server == self.node: super()._dec(e, s)
+
+class CompletionsEstimatorNode(_NodeFilterMixin, CompletionsEstimator):
+    def _on_dep(self, e, s):
+        if e.server == self.node: super()._on_dep(e, s)
+
+class BusytimeEstimatorNode(_NodeFilterMixin, BusytimeEstimator):
+    def _on_arr(self, e, s):
+        if e.server == self.node: super()._on_arr(e, s)
+    def _on_dep(self, e, s):
+        if e.server == self.node: super()._on_dep(e, s)
+
+# helper per creare gli stimatori per tutti i nodi
+def make_node_estimators(sched, nodes, EstCls):
+    return {n: EstCls(sched, n) for n in nodes}

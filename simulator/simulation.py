@@ -41,11 +41,23 @@ class Simulation:
         ArrivalsGenerator(self.scheduler, rate=self.lambda_rate, lemer_rng=self.lemer_rng)
 
         # Global handler
+        """
+        i due idf presenti in on arrival e on_departure non sono ridondanti
+        perché in on arrival viene calcolato il tempo di servizio medio per il job che arriva ovvero anche per i job
+        che arrivano dall'esterno mentre in on_departure viene calcolato il tempo di servizio medio per il job che
+        sta partendo ovvero per i job che sono già nel sistema
+        """
         def _on_arrival(event: Event, scheduler: NextEventScheduler):
             node = self.network.get_node(event.server)
             if event.job_id is None:
+                """
+                DIFFERENCE:
                 mu = node.service_rates[event.job_class]
-                svc = idfExponential(1.0 / mu, self.lemer_rng.random())
+                svc = idfExponential(1.0/mu, self.lemer_rng.random())
+                veniva usato come mu ma in realta si tratta di E(s) quindi si tratta gia di media del tempo di servizio
+                """
+                mean_service_time = node.service_rates[event.job_class]
+                svc = idfExponential(mean_service_time, self.lemer_rng.random())
                 job = Job(event.job_class, event.time, svc)
             else:
                 job = scheduler.job_table[event.job_id]
@@ -56,6 +68,9 @@ class Simulation:
         def _on_departure(event: Event, scheduler: NextEventScheduler):
             node = self.network.get_node(event.server)
             job = scheduler.job_table[event.job_id]
+            #se il nodo non ha il job in coda allora non deve essere fatto il departure
+            if job not in node.jobs:
+                return
             node.departure(job, scheduler)
             nxt = self.routing_matrix[(event.server, event.job_class)]
             if nxt == "EXIT":
@@ -63,8 +78,9 @@ class Simulation:
                 return
             n_node, n_class = nxt
             job.job_class = n_class
-            mu = self.network.get_node(n_node).service_rates[n_class]
-            job.remaining_service = idfExponential(1.0 / mu, self.lemer_rng.random())
+            #stesso cambio fatto in _on_arrival
+            mean_service_time = self.network.get_node(n_node).service_rates[n_class]
+            job.remaining_service = idfExponential(mean_service_time, self.lemer_rng.random())
             next_e = Event(time=scheduler.current_time,
                            event_type="ARRIVAL",
                            server=n_node,
@@ -82,6 +98,17 @@ class Simulation:
         self.comp = CompletionsEstimator(self.scheduler)
         self.ot = ObservationTimeEstimator(self.scheduler)
         self.busy = BusytimeEstimator(self.scheduler)
+        # ── stimatori PER NODO ─────────────────────────────
+        nodes = list(self.network.nodes.keys())
+        from simulator.estimators import (
+            ResponseTimeEstimatorNode, PopulationEstimatorNode,
+            CompletionsEstimatorNode, BusytimeEstimatorNode,
+            make_node_estimators)
+        self.rt_n   = make_node_estimators(self.scheduler, nodes, ResponseTimeEstimatorNode)
+        self.pop_n  = make_node_estimators(self.scheduler, nodes, PopulationEstimatorNode)
+        self.comp_n = make_node_estimators(self.scheduler, nodes, CompletionsEstimatorNode)
+        self.busy_n = make_node_estimators(self.scheduler, nodes, BusytimeEstimatorNode)
+
 
     def run(self):
         cnt = 0
@@ -91,13 +118,37 @@ class Simulation:
             if self.max_events and cnt >= self.max_events:
                 break
         # raccolta metriche
-        return {
+        # chiudo eventuale periodo busy aperto
+        self.busy.finalize(self.scheduler.current_time)
+        for b in self.busy_n.values():
+            b.finalize(self.scheduler.current_time)
+
+        return self._collect()
+
+
+
+    def _collect(self):
+        overall = {
             "mean_response_time": self.rt.w.get_mean(),
-            "std_response_time": self.rt.w.get_stddev(),
-            "mean_population": self.pop.w.get_mean(),
-            "std_population": self.pop.w.get_stddev(),
-            "throughput": self.comp.count / self.ot.elapsed(),
-            "utilization": self.busy.get_busy_time() / self.ot.elapsed(),
-            "simulation_time": self.ot.elapsed(),
-            "events_processed": cnt
+            "std_response_time":  self.rt.w.get_stddev(),
+            "mean_population":    self.pop.w.get_mean(),
+            "std_population":     self.pop.w.get_stddev(),
+            "throughput":         self.comp.count / self.ot.elapsed(),
+            "utilization":        self.busy.get_busy_time() / self.ot.elapsed(),
         }
+
+        per_node = {}
+        for n in self.network.nodes:
+            rt   = self.rt_n[n].w
+            pop  = self.pop_n[n].w
+            comp = self.comp_n[n]
+            busy = self.busy_n[n]
+            per_node[n] = {
+                "mean_response_time": rt.get_mean(),
+                "std_response_time":  rt.get_stddev(),
+                "mean_population":    pop.get_mean(),
+                "std_population":     pop.get_stddev(),
+                "throughput":         comp.count / self.ot.elapsed(),
+                "utilization":        busy.get_busy_time() / self.ot.elapsed(),
+            }
+        return overall, per_node

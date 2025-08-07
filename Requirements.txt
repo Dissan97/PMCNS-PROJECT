@@ -13,6 +13,7 @@ simpy
 matplotlib
 seaborn
 plotly
+tabulate
 
 # Optional: Interactive dashboards (optional but useful)
 dash
