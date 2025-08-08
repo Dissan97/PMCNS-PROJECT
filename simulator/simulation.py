@@ -25,10 +25,10 @@ class Simulation:
         cfg = json.load(open(cfg_path))
         self.lambda_rate = cfg.get("arrival_rate", 0.5)  # γ
         self.service_rates = {tuple(eval(k)): v for k, v in cfg["service_rates"].items()}
-        print("Service rates: ", self.service_rates)
+        #print("Service rates: ", self.service_rates)
         self.routing_matrix = {tuple(eval(k)): (tuple(eval(v)) if v != "EXIT" else "EXIT")
                                for k, v in cfg["routing_matrix"].items()}
-        print("Routing matrix: ", self.routing_matrix)
+        #print("Routing matrix: ", self.routing_matrix)
         self.max_events = cfg.get("max_events", None)
 
         self.scheduler = NextEventScheduler()
@@ -74,7 +74,7 @@ class Simulation:
             node.departure(job, scheduler)
             nxt = self.routing_matrix[(event.server, event.job_class)]
             if nxt == "EXIT":
-                print(f"Job {job.id} with class {job.job_class} completed at time {scheduler.current_time}")
+                #print(f"Job {job.id} with class {job.job_class} completed at time {scheduler.current_time}")
                 return
             n_node, n_class = nxt
             job.job_class = n_class
@@ -95,7 +95,7 @@ class Simulation:
         # stimatori
         self.rt = ResponseTimeEstimator(self.scheduler)
         self.pop = PopulationEstimator(self.scheduler)
-        self.comp = CompletionsEstimator(self.scheduler)
+        self.comp = CompletionsEstimator(self.scheduler, self.routing_matrix)
         self.ot = ObservationTimeEstimator(self.scheduler)
         self.busy = BusytimeEstimator(self.scheduler)
         # ── stimatori PER NODO ─────────────────────────────
@@ -106,7 +106,13 @@ class Simulation:
             make_node_estimators)
         self.rt_n   = make_node_estimators(self.scheduler, nodes, ResponseTimeEstimatorNode)
         self.pop_n  = make_node_estimators(self.scheduler, nodes, PopulationEstimatorNode)
-        self.comp_n = make_node_estimators(self.scheduler, nodes, CompletionsEstimatorNode)
+        self.comp_n = make_node_estimators(
+            self.scheduler,                # sched
+            nodes,                         # iterable di nodi
+            CompletionsEstimatorNode,      # classe da istanziare
+            routing_matrix=self.routing_matrix   # <── parametro obbligatorio
+        )
+
         self.busy_n = make_node_estimators(self.scheduler, nodes, BusytimeEstimatorNode)
 
 
