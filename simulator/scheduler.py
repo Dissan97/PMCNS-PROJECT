@@ -51,3 +51,5 @@ class NextEventScheduler:
 
     def intercept(self, event_type, handler):
         self.interceptors.setdefault(event_type, []).append(handler)
+
+

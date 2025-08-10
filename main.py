@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import datetime
 import pandas as pd
 import sys
+import json
 
 """
 TODO:
@@ -17,7 +18,7 @@ rivedere il codice per le metriche per i nodi, in particolare il ResponseTime to
 # ───────────────────────────────────────────────────────────────────
 CFG_PATH = Path(sys.argv[1] if len(sys.argv) > 1 else "config_obj1.json")
 
-SEEDS    = [111, 222, 333, 444, 555]       # lista di seed per le repliche
+SEEDS    = [12345, 178936871, 3146859322, 43676229, 3522623596]       # lista di seed per le repliche
 OUT_DIR  = Path(".output_simulation")
 # Controlla se la cartella esiste, altrimenti la crea
 if not OUT_DIR.exists():
@@ -25,7 +26,8 @@ if not OUT_DIR.exists():
 # ───────────────────────────────────────────────────────────────────
 
 def run_one(seed: int, run_idx: int):
-    sim = Simulation(CFG_PATH, seed=seed)
+    cfg = json.load(open(CFG_PATH))
+    sim = Simulation(cfg=cfg, seed=seed)
     overall, per_node = sim.run()
 
     # --- stampa in console --------------------------------------------------
@@ -38,7 +40,7 @@ def run_one(seed: int, run_idx: int):
     print("\nPER NODE")
     node_rows = [dict(Node=n, **per_node[n]) for n in sorted(per_node)]
     print(tabulate(node_rows, headers="keys", floatfmt=".3f",
-                   tablefmt="fancy_grid"))
+                   tablefmt="rounded_outline"))
 
     # --- salva CSV ----------------------------------------------------------
     ts   = datetime.now().strftime("%Y%m%d_%H%M%S")

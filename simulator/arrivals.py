@@ -22,6 +22,7 @@ class ArrivalsGenerator:
         self.rate = rate
         self.node = target_node
         self.job_class = job_class
+        self.active = True
         # subscriber per auto‐reschedulazione
         scheduler.subscribe("ARRIVAL", self._on_arrival)
         # primo arrivo a t=0
@@ -34,7 +35,8 @@ class ArrivalsGenerator:
 
     def _on_arrival(self, ev, sched):
         # solo se esterno e al nodo A
-        if ev.job_id is None and ev.server == self.node:
+
+        if self.active and ev.job_id is None and ev.server == self.node:
             ia = idfExponential(1.0 / self.rate, self.lemer_rng.random())
             # print(f"Scheduling next arrival at {sched.current_time + ia:.4f} for node {self.node} with class {self.job_class}")
             nxt = Event(time=sched.current_time + ia,
@@ -43,3 +45,4 @@ class ArrivalsGenerator:
                         job_id=None,
                         job_class=self.job_class)
             sched.schedule(nxt)
+
