@@ -13,21 +13,64 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Facade that aggregates and manages multiple performance estimators for
+ * a Next-Event-Simulation of a network of service nodes.
+ * <p>
+ * This class collects global and per-node metrics such as:
+ * <ul>
+ *   <li>Mean and standard deviation of response time</li>
+ *   <li>Mean and standard deviation of population</li>
+ *   <li>Throughput</li>
+ *   <li>Utilization</li>
+ * </ul>
+ * It also produces ASCII tables summarizing these statistics for logging.
+ */
 public class EstimatorFacade {
+
+    /** Headers for per-node metrics table. */
     private static final List<String> HEADERS_NODE = List.of("Node","mean_response_time","std_response_time",
             "mean_population", "std_population","throughput","utilization");
+
+    /** Global response time estimator. */
     private final ResponseTimeEstimator rt;
+
+    /** Global population estimator. */
     private final PopulationEstimator pop;
+
+    /** Global completions estimator. */
     private final CompletionsEstimator comp;
+
+    /** Observation time estimator to measure elapsed simulation time. */
     private final ObservationTimeEstimator ot;
+
+    /** Global busy time estimator. */
     private final BusyTimeEstimator busy;
+
+    /** Headers for global metrics table. */
     private static final List<String> HEADERS = List.of("mean_response_time","std_response_time","mean_population",
             "std_population","throughput","utilization");
+
+    /** Per-node response time estimators. */
     private final Map<String, ResponseTimeEstimatorNode> rtNode;
+
+    /** Per-node population estimators. */
     private final Map<String, PopulationEstimatorNode> popNode;
+
+    /** Per-node completions estimators. */
     private final Map<String, CompletionsEstimatorNode> compNode;
+
+    /** Per-node busy time estimators. */
     private final Map<String, BusyTimeEstimatorNode> busyNode;
 
+    /**
+     * Constructs an {@code EstimatorFacade} for the given network and scheduler,
+     * and initializes all estimators (both global and per-node).
+     *
+     * @param network       the simulated network
+     * @param scheduler     the event scheduler
+     * @param routingMatrix the routing matrix mapping nodes and classes to next destinations
+     */
     public EstimatorFacade(Network network, NextEventScheduler scheduler,
                            Map<String, Map<String, TargetClass>> routingMatrix) {
         this.rt = new ResponseTimeEstimator(scheduler);
@@ -47,10 +90,16 @@ public class EstimatorFacade {
         }
     }
 
-
-
-
-
+    /**
+     * Creates an ASCII table with the specified headers and rows.
+     * Columns are automatically sized to fit the longest cell content,
+     * and numeric values are formatted to six decimal places.
+     *
+     * @param headers the column headers
+     * @param rows    the table rows; each row must match the header size
+     * @return a string representation of the ASCII table
+     * @throws IllegalArgumentException if a row size does not match the header size
+     */
     public static String makeTable(List<String> headers, List<List<Object>> rows) {
         AsciiTable at = new AsciiTable();
 
@@ -87,18 +136,32 @@ public class EstimatorFacade {
         return at.render();
     }
 
-
-
+    /**
+     * Formats a double value to six decimal places.
+     *
+     * @param d the value to format
+     * @return the formatted string
+     */
     private static String fmt(double d) {
         return String.format("%.6f", d);
     }
 
+    /**
+     * Calculates and logs global and per-node simulation statistics.
+     * <p>
+     * This method finalizes busy time estimators, computes metrics such as
+     * mean/standard deviation of response time and population, throughput,
+     * and utilization, and logs them in ASCII table format.
+     *
+     * @param scheduler the simulation scheduler
+     * @param network   the simulated network
+     */
     public void calculateStats(NextEventScheduler scheduler, Network network) {
         busy.finalizeBusy(scheduler.getCurrentTime());
         for (BusyTimeEstimator b : busyNode.values()) {
             b.finalizeBusy(scheduler.getCurrentTime());
         }
-        // 4) METRICS COLLECTION (optional): compute & log like Python
+        // METRICS COLLECTION
         double elapsed = ot.elapsed();
         double meanRtOverall = calculateOverallRt();
         double stdRtOverall = rt.w.getStddev();
@@ -106,7 +169,6 @@ public class EstimatorFacade {
         double stdPop = pop.w.getStddev();
         double throughput = elapsed > 0 ? (double) comp.count / elapsed : 0.0;
         double utilization = elapsed > 0 ? busy.getBusyTime() / elapsed : 0.0;
-
 
         List<List<Object>> globalRows = List.of(
                 List.of(fmt(meanRtOverall), fmt(stdRtOverall), fmt(meanPop), fmt(stdPop),
@@ -134,8 +196,14 @@ public class EstimatorFacade {
 
     }
 
-
-
+    /**
+     * Computes the overall mean response time for the system based on per-node means.
+     * <p>
+     * Formula: {@code RT_A * 3 + RT_B + RT_P}, which reflects a specific routing pattern
+     * where node A is visited three times per job.
+     *
+     * @return the calculated overall response time
+     */
     private double calculateOverallRt() {
         // Mirrors Python: RT_A * 3 + RT_B + RT_P
         double a = rtNode.containsKey("A") ? rtNode.get("A").w.getMean() : 0.0;
@@ -143,5 +211,4 @@ public class EstimatorFacade {
         double p = rtNode.containsKey("P") ? rtNode.get("P").w.getMean() : 0.0;
         return a * 3 + b + p;
     }
-
 }
