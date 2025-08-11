@@ -2,7 +2,6 @@ package com.g45.webappsim.simulator;
 
 import com.g45.webappsim.logging.SysLogger;
 import org.jetbrains.annotations.NotNull;
-import org.json.JSONException;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 
