@@ -57,92 +57,101 @@ def _parse_service_times(cfg: dict) -> Dict[tuple, float]:
 # ───────────────────────────────────────────────────────────────
 def analytic_metrics(cfg: dict, gamma: float) -> dict:
     """
-    Metriche teoriche per la web app A-B-A-P-A con disciplina Processor-Sharing.
-    Le tre visite su A sono lo *stesso server fisico* → si sommano i tempi di servizio (domanda di servizio).
+    Theoretical metrics for the A-B-A-P-A web app under Processor-Sharing (PS).
+    Physical-node aggregation: the three visits to A are served by the same physical node.
 
-    Assunzioni:
-      - Modello aperto (arrivi esterni) con tasso gamma [job/s]
-      - PS (M/G/1-PS) su ciascun nodo fisico
-      - Nessuna perdita/abbandono all'interno di questo scope (quindi X = gamma se stabile)
+    Assumptions for std:
+      - M/M/1-PS at each physical node (exponential service).
+      - Poisson external arrivals.
+      - Nodes are treated as independent for variance aggregation.
+      => For each node k: E[W_k] = D_k / (1 - rho_k) and std[W_k] = E[W_k].
+         System std is sqrt(sum_k Var[W_k]).
 
-    Output:
+    Returns:
       - stable: True/False
-      - throughput: X (se stabile), altrimenti None
-      - mean_response_time: W_sys
-      - mean_population: N_sys = X * W_sys
-      - utilizations: ρ_k per ciascun nodo fisico
-      - system_busy_prob: stima P{almeno un nodo busy} (approssimazione d’indipendenza)
-      - X_max: bound teorico di throughput = 1 / max(D_k)
-      - bottleneck: nodo con domanda di servizio massima
+      - throughput: X if stable, else X_max (capacity bound)
+      - mean_response_time, std_response_time
+      - mean_population (= X * E[T]), std_population (= X * std_T)
+      - utilization (scalar system-busy prob) and per-node utilizations
+      - system_busy_prob (alias of utilization)
+      - X_max and bottleneck
     """
-    # ---- 1) Tempi medi per *visita* (secondi) ------------------------------------
+    # ---- 1) Service times per visit (seconds) ------------------------------------
     S = _parse_service_times(cfg)
 
-    # ---- 2) Aggregazione per nodo fisico -----------------------------------------
-    # Domande di servizio per job:
+    # ---- 2) Aggregate service demand per physical node ---------------------------
     D_A = S[("A", 1)] + S[("A", 2)] + S[("A", 3)]
     D_B = S[("B", 1)]
     D_P = S[("P", 2)]
 
-    # ---- 3) Throughput esterno e utilizzazioni -----------------------------------
+    # ---- 3) External throughput and utilizations --------------------------------
     X = float(gamma)
     rho_A = X * D_A
     rho_B = X * D_B
     rho_P = X * D_P
+    U_sys = 1.0 - (1.0 - rho_A) * (1.0 - rho_B) * (1.0 - rho_P)
 
-    # Bound di capacità e bottleneck (utile anche se instabile)
+    # Capacity bound and bottleneck (useful also if unstable)
     X_max = 1.0 / max(D_A, D_B, D_P)
     bottleneck = max((("A", D_A), ("B", D_B), ("P", D_P)), key=lambda t: t[1])[0]
 
-    # ---- 4) Stabilità -------------------------------------------------------------
+    # ---- 4) Stability check ------------------------------------------------------
     if any(r >= 1.0 for r in (rho_A, rho_B, rho_P)):
-        # Rete instabile: ritorniamo info diagnostiche
+        # Unstable network: provide diagnostics and infinite second-order metrics
         return {
             "stable": False,
-            "throughput": None,
+            "throughput": X_max,
             "mean_response_time": math.inf,
-            "std_response_time": None,
-            "mean_population": None,
-            "std_population": None,
+            "std_response_time": math.inf,       # replaced None
+            "mean_population": math.inf,
+            "std_population": math.inf,          # replaced None
+            "utilization": 1.0,                  # kept for compare()
             "utilizations": {"A": rho_A, "B": rho_B, "P": rho_P},
-            # per coerenza con compare(): niente 'utilization' scalare se instabile
             "util_A": rho_A,
             "util_B": rho_B,
             "util_P": rho_P,
-            "system_busy_prob": None,
+            "system_busy_prob": U_sys,
             "X_max": X_max,
             "bottleneck": bottleneck,
         }
 
-    # ---- 5) Tempi medi per nodo (M/G/1-PS): W_k = D_k / (1 - ρ_k) ----------------
+    # ---- 5) Per-node mean response (M/M/1-PS): W_k = D_k / (1 - rho_k) ----------
     W_A = D_A / (1.0 - rho_A)
     W_B = D_B / (1.0 - rho_B)
     W_P = D_P / (1.0 - rho_P)
 
-    # ---- 6) Metriche globali ------------------------------------------------------
+    # ---- 6) System means ---------------------------------------------------------
     W_sys = W_A + W_B + W_P
     N_sys = X * W_sys
 
-    # Stima opzionale P{sistema non vuoto} assumendo indipendenza tra nodi (approssimata)
-    U_sys = 1.0 - (1.0 - rho_A) * (1.0 - rho_B) * (1.0 - rho_P)
+    # ---- 6bis) Standard deviations (M/M/1-PS with exponential service) ----------
+    # For each node: std[W_k] = W_k; assume independence across nodes.
+    std_W_A = W_A
+    std_W_B = W_B
+    std_W_P = W_P
+
+    # System std: sqrt of sum of per-node variances
+    std_W_sys = math.sqrt(std_W_A**2 + std_W_B**2 + std_W_P**2)
+    std_N_sys = X * std_W_sys  # From Little's Law and treating X as constant
 
     return {
         "stable": True,
         "throughput": X,
         "mean_response_time": W_sys,
-        "std_response_time": None,
+        "std_response_time": std_W_sys,          # now provided
         "mean_population": N_sys,
-        "std_population": None,
+        "std_population": std_N_sys,             # now provided
 
-        # --- Utilizzazioni ---
-        "utilization": U_sys,                   # scalar per compare()
-        "util_A": rho_A,                        # per-nodo (se vuoi confrontarle)
+        # --- Utilizations ---
+        "utilization": U_sys,
+        "util_A": rho_A,
         "util_B": rho_B,
         "util_P": rho_P,
-        "utilizations": {"A": rho_A, "B": rho_B, "P": rho_P},  # anche come dict
+        "utilizations": {"A": rho_A, "B": rho_B, "P": rho_P},
 
-        "system_busy_prob": U_sys,              # alias, se già usato altrove
+        "system_busy_prob": U_sys,
         "X_max": X_max,
         "bottleneck": bottleneck,
     }
+
 

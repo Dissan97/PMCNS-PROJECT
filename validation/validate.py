@@ -4,9 +4,9 @@
 # analitiche del paper. Uso:
 #   python validation\validate.py <gamma> <config.json> <csv1> [csv2 ...]
 # Esempio:
-#   python validation\validate.py 1.2 config_obj1.json .output_simulation\results_config_obj1_run*.csv
-#   python validation\validate.py 1.2 config_obj2_2fa.json .output_simulation\results_config_obj2_2fa_run*.csv
-#   python validation\validate.py 1.2 config_obj3_heavy.json .output_simulation\results_config_obj3_heavy_run*.csv
+#   python validation\validate.py 1.2 config_obj1.json .output_simulation\results_obj1_run*.csv
+#   python validation\validate.py 1.2 config_obj2_2fa.json .output_simulation\results_obj2_run*.csv
+#   python validation\validate.py 1.2 config_obj3_heavy.json .output_simulation\results_obj3_run*.csv
 # --------------------------------------------------------------
 
 import sys, glob
@@ -77,7 +77,7 @@ def main() -> None:
         for k, v in cmp.items()
     ]
 
-    print(tabulate(rows, headers="keys", floatfmt=".3f", tablefmt="rounded_outline"))
+    print(tabulate(rows, headers="keys", floatfmt=".5f", tablefmt="rounded_outline"))
 
 
 if __name__ == "__main__":

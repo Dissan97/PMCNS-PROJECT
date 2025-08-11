@@ -19,6 +19,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
+
 
 import static com.g45.webappsim.App.cfgPath;
 
@@ -114,11 +116,7 @@ public class EstimatorFacade {
      */
     public static String makeTable(List<String> headers, List<List<Object>> rows) {
         AsciiTable at = new AsciiTable();
-
-        // Use auto-size column width based on longest line
         at.getRenderer().setCWC(new CWC_LongestLine());
-
-        // Center align all cells by default
         at.setTextAlignment(TextAlignment.CENTER);
 
         at.addRule();
@@ -132,10 +130,10 @@ public class EstimatorFacade {
                 );
             }
 
-            // Format numeric values with fixed precision
             Object[] formattedRow = row.stream().map(val -> {
                 if (val instanceof Number) {
-                    return String.format("%.6f", ((Number) val).doubleValue());
+                    // Always use '.' as decimal separator
+                    return String.format(Locale.ROOT, "%.6f", ((Number) val).doubleValue());
                 } else {
                     return val != null ? val.toString() : "";
                 }
@@ -148,15 +146,18 @@ public class EstimatorFacade {
         return at.render();
     }
 
+
     /**
      * Formats a double value to six decimal places.
      *
      * @param d the value to format
      * @return the formatted string
      */
+// Formats a double with '.' as decimal separator regardless of system locale
     private static String fmt(double d) {
-        return String.format("%.6f", d);
+        return String.format(Locale.ROOT, "%.6f", d); // or Locale.US
     }
+
 
     /**
      * Calculates and logs global and per-node simulation statistics.
