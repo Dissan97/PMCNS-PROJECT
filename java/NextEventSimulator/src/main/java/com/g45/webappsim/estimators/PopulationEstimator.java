@@ -3,53 +3,92 @@ package com.g45.webappsim.estimators;
 import com.g45.webappsim.simulator.Event;
 import com.g45.webappsim.simulator.NextEventScheduler;
 
+import java.util.function.BiConsumer;
+
 /**
- * Tracks the instantaneous population (number of jobs) in the system
- * over time and computes statistical measures using {@link WelfordEstimator}.
- * <p>
- * This estimator listens to {@link Event.Type#ARRIVAL} and
- * {@link Event.Type#DEPARTURE} events to update the population count.
- * Every time the population changes, the new value is fed into the
- * Welford estimator to maintain running statistics (mean, variance, etc.).
- * </p>
+ * Estimates the *time-weighted* average system population.
+ * Idea: integrate the area under the pop(t) curve by updating on every event,
+ * BEFORE changing the population. The average is area / observed_time.
  */
 public class PopulationEstimator {
 
-    /** Current number of jobs in the system. */
-    protected int pop = 0;
+    // Current system population (number of jobs in the system)
+    private int pop = 0;
 
-    /** Welford estimator for computing mean and variance of population over time. */
-    public final WelfordEstimator w = new WelfordEstimator();
+    // Time variables to integrate the area under the curve
+    private final double startTime;  // observation start time
+    private double lastTime;         // last time the estimator was updated
+    private double area = 0.0;       // ∫ pop(t) dt
 
-    /**
-     * Creates a new population estimator and subscribes it to ARRIVAL and DEPARTURE events.
-     *
-     * @param sched the event scheduler to subscribe to
-     */
+    // Optional (for diagnostics)
+    private int min = 0;
+    private int max = 0;
+
+    // Handlers registered to the scheduler
+    private final BiConsumer<Event, NextEventScheduler> onArrival = this::tickThenInc;
+    private final BiConsumer<Event, NextEventScheduler> onDeparture = this::tickThenDec;
+
     public PopulationEstimator(NextEventScheduler sched) {
-        sched.subscribe(Event.Type.ARRIVAL, this::inc);
-        sched.subscribe(Event.Type.DEPARTURE, this::dec);
+        this.startTime = sched.getCurrentTime();
+        this.lastTime = this.startTime;
+
+        // Subscribe to ARRIVAL and DEPARTURE events
+        sched.subscribe(Event.Type.ARRIVAL, onArrival);
+        sched.subscribe(Event.Type.DEPARTURE, onDeparture);
+        
     }
 
     /**
-     * Handles an arrival event by incrementing the population and updating statistics.
-     *
-     * @param e the arrival event
-     * @param s the event scheduler
+     * Update the accumulated area up to the current time,
+     * without changing the population.
+     * Always call this BEFORE incrementing/decrementing pop.
      */
-    protected void inc(Event e, NextEventScheduler s) {
+    private void tick(NextEventScheduler s) {
+        double now = s.getCurrentTime();
+        double dt = now - lastTime;
+        if (dt > 0.0) {
+            area += pop * dt;
+            lastTime = now;
+        } else {
+            // If dt == 0, no integration: same timestamp
+            lastTime = now;
+        }
+    }
+
+    private void tickThenInc(Event e, NextEventScheduler s) {
+        tick(s);
         pop += 1;
-        w.add(pop);
+        if (pop > max) max = pop;
+    }
+
+    private void tickThenDec(Event e, NextEventScheduler s) {
+        tick(s);
+        pop -= 1;
+        if (pop < min) min = pop;
     }
 
     /**
-     * Handles a departure event by decrementing the population and updating statistics.
-     *
-     * @param e the departure event
-     * @param s the event scheduler
+     * Returns the *time-weighted* average population:
+     *   N_bar = area / (lastTime - startTime)
      */
-    protected void dec(Event e, NextEventScheduler s) {
-        pop -= 1;
-        w.add(pop);
+    public double getMean() {
+        double elapsed = lastTime - startTime;
+        return (elapsed > 0.0) ? (area / elapsed) : 0.0;
+    }
+
+    // Optional getters for diagnostics
+    public int getMin() { return min; }
+    public int getMax() { return max; }
+
+    /**
+     * Finalizes the area integration up to a given time
+     * (e.g., at the end of simulation) before reading the mean.
+     */
+    public void finalizeAt(double currentTime) {
+        double dt = currentTime - lastTime;
+        if (dt > 0.0) {
+            area += pop * dt;
+            lastTime = currentTime;
+        }
     }
 }

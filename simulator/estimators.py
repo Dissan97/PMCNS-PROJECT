@@ -37,19 +37,48 @@ class ResponseTimeEstimator:
 
 
 class PopulationEstimator:
+    """
+    Media della popolazione *pesata nel tempo* (time-weighted).
+    L'idea: integriamo area = ∫ pop(t) dt aggiornando ad ogni evento,
+    prima di modificare la popolazione. La media è area / tempo_osservato.
+    """
     def __init__(self, sched):
         self.pop = 0
-        self.w = WelfordEstimator()
-        sched.subscribe("ARRIVAL", self._inc)
-        sched.subscribe("DEPARTURE", self._dec)
+        self.start_time = sched.current_time
+        self.last_time = self.start_time
+        self.area = 0.0
+        # manteniamo anche min/max opzionali (se ti servono)
+        self.min = 0
+        self.max = 0
 
-    def _inc(self, e, s):
-        self.pop += 1;
-        self.w.add(self.pop)
+        # facciamo "tick" su ogni ARRIVAL/DEPARTURE per accumulare area
+        sched.subscribe("ARRIVAL", self._tick_then_inc)
+        sched.subscribe("DEPARTURE", self._tick_then_dec)
 
-    def _dec(self, e, s):
-        self.pop -= 1;
-        self.w.add(self.pop)
+    def _tick(self, s):
+        """Aggiorna l'area fino all'istante corrente, senza cambiare pop."""
+        now = s.current_time
+        dt = now - self.last_time
+        if dt > 0:
+            self.area += self.pop * dt
+            self.last_time = now
+
+    def _tick_then_inc(self, e, s):
+        self._tick(s)
+        # incremento popolazione (arrivo in sistema)
+        self.pop += 1
+        if self.pop > self.max: self.max = self.pop
+
+    def _tick_then_dec(self, e, s):
+        self._tick(s)
+        # decremento popolazione (uscita dal sistema)
+        self.pop -= 1
+        if self.pop < self.min: self.min = self.pop
+
+    def get_mean(self):
+        """Media temporale N = area / (last_time - start_time)."""
+        elapsed = self.last_time - self.start_time
+        return (self.area / elapsed) if elapsed > 0.0 else 0.0
 
 
 class CompletionsEstimator:
@@ -131,11 +160,36 @@ class ResponseTimeEstimatorNode(_NodeFilterMixin, ResponseTimeEstimator):
 
 
 class PopulationEstimatorNode(_NodeFilterMixin, PopulationEstimator):
-    def _inc(self, e, s):
-        if e.server == self.node: super()._inc(e, s)
+    """
+    Media temporale della popolazione *del singolo nodo*.
+    Nota: l'area va aggiornata ad ogni evento di sistema (tick),
+    ma incrementiamo/decrementiamo SOLO se l'evento riguarda quel nodo.
+    """
+    def __init__(self, sched, node, *args, **kwargs):
+        super().__init__(sched, *args, **kwargs)
+        self.node = node
+        # sovrascrivo le subscribe per avere il tick sempre e il +/- filtrato
+        # rimuovere le vecchie subscribe non è necessario nel tuo scheduler,
+        # quindi aggiungiamo handler dedicati:
+        sched.subscribe("ARRIVAL", self._node_tick_then_inc)
+        sched.subscribe("DEPARTURE", self._node_tick_then_dec)
 
-    def _dec(self, e, s):
-        if e.server == self.node: super()._dec(e, s)
+    def _node_tick_then_inc(self, e, s):
+        # aggiorna area sempre…
+        self._tick(s)
+        # …ma incrementa solo se l’ARRIVAL è su questo nodo
+        if e.server == self.node:
+            self.pop += 1
+            if self.pop > self.max: self.max = self.pop
+
+    def _node_tick_then_dec(self, e, s):
+        # aggiorna area sempre…
+        self._tick(s)
+        # …ma decrementa solo se il DEPARTURE è su questo nodo
+        if e.server == self.node:
+            self.pop -= 1
+            if self.pop < self.min: self.min = self.pop
+
 
 
 class CompletionsEstimatorNode(_NodeFilterMixin, CompletionsEstimator):

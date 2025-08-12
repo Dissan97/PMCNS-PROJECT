@@ -18,5 +18,5 @@
       "2": {"target": "A", "class": "3"}
     }
     },
-  "max_events": 10000000
+  "max_events": 5000000
 }

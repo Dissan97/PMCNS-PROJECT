@@ -29,7 +29,7 @@ public class App {
      * Predefined seeds used to initialize the random number generator
      * for multiple independent simulation runs.
      */
-    private static final int[] SEEDS = new int[]{314159265, 271828183, 141421357, 1732584193, 123456789};
+    private static final int[] SEEDS = new int[]{314159265};//, 271828183, 141421357, 1732584193, 123456789};
 
     /**
      * Application logger instance for logging messages to console or file.
@@ -40,7 +40,7 @@ public class App {
 
     /**
      * Main method that starts the application.
-     *
+     *2
      * <p>Behavior:</p>
      * <ol>
      *     <li>If a command-line argument is provided, it is treated as the configuration file path.</li>

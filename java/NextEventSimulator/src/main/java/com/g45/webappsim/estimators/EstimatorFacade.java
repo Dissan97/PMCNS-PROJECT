@@ -15,110 +15,72 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Locale;
-
+import java.util.*;
 
 import static com.g45.webappsim.App.cfgPath;
 
 /**
- * Facade that aggregates and manages multiple performance estimators for
- * a Next-Event-Simulation of a network of service nodes.
- * <p>
- * This class collects global and per-node metrics such as:
- * <ul>
- *   <li>Mean and standard deviation of response time</li>
- *   <li>Mean and standard deviation of population</li>
- *   <li>Throughput</li>
- *   <li>Utilization</li>
- * </ul>
- * It also produces ASCII tables summarizing these statistics for logging.
+ * Facade che aggrega e gestisce gli stimatori per una simulazione a eventi discreti.
+ *
+ * Scelte metodologiche:
+ *  - In simulazione MISURIAMO separatamente R (tempi), X (throughput) e N (popolazione tempo-pesata).
+ *  - Usiamo Little (N ≈ X·R) come CHECK di coerenza, non per costruire N.
+ *  - Nel log stampiamo anche il confronto Little a livello globale.
  */
 public class EstimatorFacade {
 
-    /** Headers for global metrics table. */
-    private static final List<String> HEADERS = List.of("mean_response_time","std_response_time","mean_population",
-            "std_population","throughput","utilization");
-    /** Headers for per-node metrics table. */
-    private static final List<String> HEADERS_NODE = List.of("Node","mean_response_time","std_response_time",
-            "mean_population", "std_population","throughput","utilization");
+    /** Header tabella globale. */
+    private static final List<String> HEADERS = List.of(
+            "mean_response_time","std_response_time","mean_population","std_population","throughput","utilization"
+    );
+    /** Header tabella per-nodo. */
+    private static final List<String> HEADERS_NODE = List.of(
+            "Node","mean_response_time","std_response_time","mean_population","std_population","throughput","utilization"
+    );
     private static final Path OUT_DIR = Path.of(".output_simulation");
 
-    /** Global response time estimator. */
-    private final ResponseTimeEstimator rt;
+    // ── stimatori globali ─────────────────────────────────────────────────────
+    private final ResponseTimeEstimator rt;     // tempi end-to-end (globale)
+    private final PopulationEstimator   pop;    // popolazione tempo-pesata (globale)
+    private final CompletionsEstimator  comp;   // completamenti (globale)
+    private final ObservationTimeEstimator ot;  // tempo osservato
+    private final BusyTimeEstimator     busy;   // tempo busy globale
 
-    /** Global population estimator. */
-    private final PopulationEstimator pop;
+    // ── stimatori per nodo ───────────────────────────────────────────────────
+    private final Map<String, ResponseTimeEstimatorNode>  rtNode;
+    private final Map<String, PopulationEstimatorNode>     popNode;   // N tempo-pesata per nodo
+    private final Map<String, CompletionsEstimatorNode>    compNode;  // usato per throughput per-nodo “misurato”
+    private final Map<String, BusyTimeEstimatorNode>       busyNode;
 
-    /** Global completions estimator. */
-    private final CompletionsEstimator comp;
-
-    /** Observation time estimator to measure elapsed simulation time. */
-    private final ObservationTimeEstimator ot;
-
-    /** Global busy time estimator. */
-    private final BusyTimeEstimator busy;
-
-    /** Per-node response time estimators. */
-    private final Map<String, ResponseTimeEstimatorNode> rtNode;
-
-    /** Per-node population estimators. */
-    private final Map<String, PopulationEstimatorNode> popNode;
-
-    /** Per-node completions estimators. */
-    private final Map<String, CompletionsEstimatorNode> compNode;
-
-    /** Per-node busy time estimators. */
-    private final Map<String, BusyTimeEstimatorNode> busyNode;
     private final long seed;
 
-    /**
-     * Constructs an {@code EstimatorFacade} for the given network and scheduler,
-     * and initializes all estimators (both global and per-node).
-     *
-     * @param network       the simulated network
-     * @param scheduler     the event scheduler
-     * @param routingMatrix the routing matrix mapping nodes and classes to next destinations
-     * @param seed          simulator seed
-     */
     public EstimatorFacade(Network network, NextEventScheduler scheduler,
                            Map<String, Map<String, TargetClass>> routingMatrix, long seed) {
-        this.rt = new ResponseTimeEstimator(scheduler);
-        this.pop = new PopulationEstimator(scheduler);
+        this.rt   = new ResponseTimeEstimator(scheduler);
+        this.pop  = new PopulationEstimator(scheduler);              // VERSIONE time-weighted (getMean())
         this.comp = new CompletionsEstimator(scheduler, routingMatrix);
-        this.ot = new ObservationTimeEstimator(scheduler);
+        this.ot   = new ObservationTimeEstimator(scheduler);
         this.busy = new BusyTimeEstimator(scheduler);
-        this.rtNode = new HashMap<>();
-        this.popNode = new HashMap<>();
+
+        this.rtNode   = new HashMap<>();
+        this.popNode  = new HashMap<>();
         this.compNode = new HashMap<>();
         this.busyNode = new HashMap<>();
-        this.seed = seed;
+        this.seed     = seed;
+
         for (String n : network.allNodes()) {
-            rtNode.put(n, new ResponseTimeEstimatorNode(scheduler, n));
-            popNode.put(n, new PopulationEstimatorNode(scheduler, n));
+            rtNode.put(n,   new ResponseTimeEstimatorNode(scheduler, n));
+            popNode.put(n,  new PopulationEstimatorNode(scheduler, n));      // VERSIONE time-weighted (getMean())
             compNode.put(n, new CompletionsEstimatorNode(scheduler, n, routingMatrix));
             busyNode.put(n, new BusyTimeEstimatorNode(scheduler, n));
         }
     }
 
-    /**
-     * Creates an ASCII table with the specified headers and rows.
-     * Columns are automatically sized to fit the longest cell content,
-     * and numeric values are formatted to six decimal places.
-     *
-     * @param headers the column headers
-     * @param rows    the table rows; each row must match the header size
-     * @return a string representation of the ASCII table
-     * @throws IllegalArgumentException if a row size does not match the header size
-     */
+    // ── util: tabella ASCII ──────────────────────────────────────────────────
     public static String makeTable(List<String> headers, List<List<Object>> rows) {
         AsciiTable at = new AsciiTable();
         at.getRenderer().setCWC(new CWC_LongestLine());
         at.setTextAlignment(TextAlignment.CENTER);
-
         at.addRule();
         at.addRow(headers.toArray());
         at.addRule();
@@ -129,16 +91,10 @@ public class EstimatorFacade {
                         "Row size " + row.size() + " does not match headers size " + headers.size()
                 );
             }
-
             Object[] formattedRow = row.stream().map(val -> {
-                if (val instanceof Number) {
-                    // Always use '.' as decimal separator
-                    return String.format(Locale.ROOT, "%.6f", ((Number) val).doubleValue());
-                } else {
-                    return val != null ? val.toString() : "";
-                }
+                if (val instanceof Number) return String.format("%.6f", ((Number) val).doubleValue());
+                return val != null ? val.toString() : "";
             }).toArray();
-
             at.addRow(formattedRow);
             at.setTextAlignment(TextAlignment.CENTER);
             at.addRule();
@@ -146,95 +102,112 @@ public class EstimatorFacade {
         return at.render();
     }
 
+    private static String fmt(double d) { return String.format(Locale.ROOT,"%.6f", d); }
 
     /**
-     * Formats a double value to six decimal places.
-     *
-     * @param d the value to format
-     * @return the formatted string
-     */
-// Formats a double with '.' as decimal separator regardless of system locale
-    private static String fmt(double d) {
-        return String.format(Locale.ROOT, "%.6f", d); // or Locale.US
-    }
-
-
-    /**
-     * Calculates and logs global and per-node simulation statistics.
-     * <p>
-     * This method finalizes busy time estimators, computes metrics such as
-     * mean/standard deviation of response time and population, throughput,
-     * and utilization, and logs them in ASCII table format.
-     *
-     * @param scheduler the simulation scheduler
-     * @param network   the simulated network
+     * Calcola e logga metriche globali e per-nodo.
+     * - N (popolazione) è MISURATA (time-weighted).
+     * - Little (X·R) è riportato come check.
      */
     public void calculateStats(NextEventScheduler scheduler, Network network) {
+        // chiusura dei periodi busy per misurare correttamente l’utilizzo
         busy.finalizeBusy(scheduler.getCurrentTime());
         for (BusyTimeEstimator b : busyNode.values()) {
             b.finalizeBusy(scheduler.getCurrentTime());
         }
-        // METRICS COLLECTION
+
+        // finestra di osservazione
         double elapsed = ot.elapsed();
-        double meanRtOverall = calculateOverallRt();
-        double stdRtOverall = rt.w.getStddev();
-        double meanPop = pop.w.getMean();
-        double stdPop = pop.w.getStddev();
-        double throughput = elapsed > 0 ? (double) comp.count / elapsed : 0.0;
+
+        // Throughput globale “misurato”
+        double X = elapsed > 0 ? (double) comp.count / elapsed : 0.0;
+
+        // Tempi globali “misurati” dallo stesso estimatore (coerenza mean/std)
+        double meanRtOverall = calculateOverallRtByVisits();
+        // std può restare dallo stimatore globale, oppure lascia anche quella per-nodo se preferisci
+        double stdRtOverall  = rt.w.getStddev();
+
+        // Popolazione globale “misurata” (time-weighted)
+        double meanPop = pop.getMean();  // <── usa la media tempo-pesata
+        double stdPop  = 0.0;            // non stimiamo qui la std di N tempo-pesata
+
+        // Utilizzo globale
         double utilization = elapsed > 0 ? busy.getBusyTime() / elapsed : 0.0;
 
+        // Tabella globale (metriche MISURATE)
         List<List<Object>> globalRows = List.of(
                 List.of(fmt(meanRtOverall), fmt(stdRtOverall), fmt(meanPop), fmt(stdPop),
-                        fmt(throughput), fmt(utilization))
+                        fmt(X), fmt(utilization))
         );
-        SysLogger.getInstance().getLogger().info("Global metrics\n" + makeTable(HEADERS, globalRows));
+        SysLogger.getInstance().getLogger().info("Global metrics (measured)\n" + makeTable(HEADERS, globalRows));
 
+        // ── Little check (globale): confronto N_mis vs X*R_mis ───────────────
+        double nLittle = X * meanRtOverall;
+        double relErr  = (nLittle != 0.0) ? (meanPop - nLittle) / nLittle : 0.0;
+
+        List<List<Object>> littleRows = List.of(
+                List.of("N_measured", fmt(meanPop)),
+                List.of("X*R_measured", fmt(nLittle)),
+                List.of("relative_error", fmt(relErr))
+        );
+        SysLogger.getInstance().getLogger().info("Little's Law check (global)\n" + makeTable(
+                List.of("quantity","value"), littleRows
+        ));
+
+        // ── Per nodo: R_n misurato, N_n misurata time-weighted, X_n misurato (completamenti nodo / elapsed) ──
         List<List<Object>> perNodeRows = new ArrayList<>();
         for (String n : network.allNodes().stream().sorted().toList()) {
             WelfordEstimator wrt = rtNode.get(n).w;
-            WelfordEstimator wpop = popNode.get(n).w;
-            BusyTimeEstimatorNode b = busyNode.get(n);
-            int completed = compNode.get(n).count;
-            double th = elapsed > 0 ? (double) completed / elapsed : 0.0;
-            double util = elapsed > 0 ? b.getBusyTime() / elapsed : 0.0;
+            double Wn    = wrt.getMean();
+            double stdWn = wrt.getStddev();
+
+            // N_n misurata (time-weighted)
+            double Nn = popNode.get(n).getMean();
+            double stdNn = 0.0;
+
+            // Throughput nodo “misurato” dai completamenti del nodo (se il tuo CompletionsEstimatorNode è definito così)
+            int completedAtNode = compNode.get(n).count;
+            double Xn = elapsed > 0 ? (double) completedAtNode / elapsed : 0.0;
+
+            // Utilizzo nodo
+            double util = elapsed > 0 ? busyNode.get(n).getBusyTime() / elapsed : 0.0;
+
             perNodeRows.add(List.of(
                     n,
-                    fmt(wrt.getMean()), fmt(wrt.getStddev()),
-                    fmt(wpop.getMean()), fmt(wpop.getStddev()),
-                    fmt(th), fmt(util)
+                    fmt(Wn), fmt(stdWn),
+                    fmt(Nn), fmt(stdNn),
+                    fmt(Xn), fmt(util)
             ));
         }
+        SysLogger.getInstance().getLogger().info("Per-node metrics (measured)\n" + makeTable(HEADERS_NODE, perNodeRows));
 
-        SysLogger.getInstance().getLogger().info("Per-node metrics\n" + makeTable(HEADERS_NODE, perNodeRows));
-
-        // --- save CSV ----------------------------------------------------------
-        saveToCsv(network, meanRtOverall, stdRtOverall, meanPop, stdPop, throughput, utilization, elapsed);
+        // --- CSV (metriche MISURATE) ----------------------------------------------------
+        saveToCsv(network, meanRtOverall, stdRtOverall, meanPop, stdPop, X, utilization, elapsed, nLittle, relErr);
     }
 
-    private void saveToCsv(Network network, double meanRtOverall, double stdRtOverall, double meanPop, double stdPop,
-                           double throughput, double utilization, double elapsed) {
+    /**
+     * Salva CSV con metriche MISURATE e, in coda, due righe per il Little check (facoltativo).
+     */
+    private void saveToCsv(Network network, double meanRtOverall, double stdRtOverall,
+                           double meanPop, double stdPop, double throughput,
+                           double utilization, double elapsed,
+                           double nLittle, double relErr) {
         try {
-            // Build timestamp like Python: YYYYMMDD_HHMMSS
             String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
-
-            // Extract stem from CFG_PATH (filename without extension)
             String cfgFile = cfgPath.replace(".json", "");
             int dot = cfgFile.lastIndexOf('.');
             String cfgStem = (dot > 0 ? cfgFile.substring(0, dot) : cfgFile);
 
-            // results_{CFG_PATH.stem}_run{run_idx:03}_seed{seed}_{ts}.csv
-            String name = String.format("results_%s_run%03d_seed%s_%s.csv", cfgStem,
-                    Simulation.SIMULATION_COUNTER.get(), String.valueOf(seed), ts);
+            String name = String.format("results_%s_run%03d_seed%s_%s.csv",
+                    cfgStem, Simulation.SIMULATION_COUNTER.get(), String.valueOf(seed), ts);
             Path outPath = OUT_DIR.resolve(name);
 
-            // Ensure output directory exists
             Files.createDirectories(OUT_DIR);
 
-            // Compose CSV: scope,node,mean_rt,std_rt,mean_pop,std_pop,throughput,utilization
             StringBuilder csv = new StringBuilder();
             csv.append("scope,mean_response_time,std_response_time,mean_population,std_population,throughput,utilization\n");
 
-            // OVERALL row (scope="OVERALL")
+            // Riga OVERALL (MISURATA)
             csv.append(String.join(",",
                             "OVERALL",
                             fmt(meanRtOverall),
@@ -243,26 +216,31 @@ public class EstimatorFacade {
                             fmt(stdPop),
                             fmt(throughput),
                             fmt(utilization)))
-                    .append('\n');
+               .append('\n');
 
-            // Per-node rows (scope="NODE_{n}")
+            // Righe per nodo (MISURATE)
             for (String n : network.allNodes().stream().sorted().toList()) {
                 WelfordEstimator wrt = rtNode.get(n).w;
-                WelfordEstimator wpop = popNode.get(n).w;
-                BusyTimeEstimatorNode b = busyNode.get(n);
-                int completed = compNode.get(n).count;
-                double th = elapsed > 0 ? (double) completed / elapsed : 0.0;
-                double util = elapsed > 0 ? b.getBusyTime() / elapsed : 0.0;
+                double Wn    = wrt.getMean();
+                double stdWn = wrt.getStddev();
+
+                double Nn = popNode.get(n).getMean();
+                double stdNn = 0.0;
+
+                int completedAtNode = compNode.get(n).count;
+                double Xn = elapsed > 0 ? (double) completedAtNode / elapsed : 0.0;
+
+                double util = elapsed > 0 ? busyNode.get(n).getBusyTime() / elapsed : 0.0;
 
                 csv.append(String.join(",",
                                 "NODE_" + n,
-                                fmt(wrt.getMean()), fmt(wrt.getStddev()),
-                                fmt(wpop.getMean()), fmt(wpop.getStddev()),
-                                fmt(th), fmt(util)))
-                        .append('\n');
+                                fmt(Wn), fmt(stdWn),
+                                fmt(Nn), fmt(stdNn),
+                                fmt(Xn), fmt(util)))
+                   .append('\n');
             }
 
-            // Write CSV
+          
             Files.writeString(outPath, csv.toString(),
                     StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
 
@@ -273,15 +251,12 @@ public class EstimatorFacade {
     }
 
     /**
-     * Computes the overall mean response time for the system based on per-node means.
-     * <p>
-     * Formula: {@code RT_A * 3 + RT_B + RT_P}, which reflects a specific routing pattern
-     * where node A is visited three times per job.
-     *
-     * @return the calculated overall response time
+     * Tempo medio di risposta complessivo via somma per visite (diagnostica).
+     * La usiamo solo per confronto se serve, NON per la tabella principale.
+     * (Puoi richiamarla a log per check con l’analitico.)
      */
-    private double calculateOverallRt() {
-        // Mirrors Python: RT_A * 3 + RT_B + RT_P
+    
+    private double calculateOverallRtByVisits() {
         double a = rtNode.containsKey("A") ? rtNode.get("A").w.getMean() : 0.0;
         double b = rtNode.containsKey("B") ? rtNode.get("B").w.getMean() : 0.0;
         double p = rtNode.containsKey("P") ? rtNode.get("P").w.getMean() : 0.0;
