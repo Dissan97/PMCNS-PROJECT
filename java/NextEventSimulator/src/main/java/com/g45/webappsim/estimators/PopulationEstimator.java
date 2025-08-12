@@ -2,56 +2,52 @@ package com.g45.webappsim.estimators;
 
 import com.g45.webappsim.simulator.Event;
 import com.g45.webappsim.simulator.NextEventScheduler;
-
 import java.util.function.BiConsumer;
 
 /**
- * Estimates the *time-weighted* average system population.
- * Idea: integrate the area under the pop(t) curve by updating on every event,
- * BEFORE changing the population. The average is area / observed_time.
+ * Stima della popolazione media *tempo-pesata* e della sua deviazione standard.
+ * Integriamo area = ∫ N(t) dt e area2 = ∫ N(t)^2 dt aggiornando ad ogni evento
+ * PRIMA di modificare la popolazione. Poi:
+ *   mean = area / T,  E[N^2] = area2 / T,  var = E[N^2] - mean^2,  std = sqrt(var).
  */
 public class PopulationEstimator {
 
-    // Current system population (number of jobs in the system)
+    // popolazione corrente
     private int pop = 0;
 
-    // Time variables to integrate the area under the curve
-    private final double startTime;  // observation start time
-    private double lastTime;         // last time the estimator was updated
-    private double area = 0.0;       // ∫ pop(t) dt
+    // integrazione nel tempo
+    private final double startTime;
+    private double lastTime;
+    private double area  = 0.0; // ∫ N(t) dt
+    private double area2 = 0.0; // ∫ N(t)^2 dt
 
-    // Optional (for diagnostics)
+    // opzionali (diagnostica)
     private int min = 0;
     private int max = 0;
 
-    // Handlers registered to the scheduler
-    private final BiConsumer<Event, NextEventScheduler> onArrival = this::tickThenInc;
+    // handler registrati
+    private final BiConsumer<Event, NextEventScheduler> onArrival   = this::tickThenInc;
     private final BiConsumer<Event, NextEventScheduler> onDeparture = this::tickThenDec;
 
     public PopulationEstimator(NextEventScheduler sched) {
         this.startTime = sched.getCurrentTime();
-        this.lastTime = this.startTime;
+        this.lastTime  = this.startTime;
 
-        // Subscribe to ARRIVAL and DEPARTURE events
-        sched.subscribe(Event.Type.ARRIVAL, onArrival);
+        // ascolta arrivi e partenze (tick sempre prima di cambiare pop)
+        sched.subscribe(Event.Type.ARRIVAL,   onArrival);
         sched.subscribe(Event.Type.DEPARTURE, onDeparture);
-        
     }
 
-    /**
-     * Update the accumulated area up to the current time,
-     * without changing the population.
-     * Always call this BEFORE incrementing/decrementing pop.
-     */
+    /** Aggiorna area e area2 fino a "ora" senza cambiare pop. */
     private void tick(NextEventScheduler s) {
         double now = s.getCurrentTime();
-        double dt = now - lastTime;
+        double dt  = now - lastTime;
         if (dt > 0.0) {
-            area += pop * dt;
+            area  += pop * dt;
+            area2 += (double)pop * (double)pop * dt;
             lastTime = now;
         } else {
-            // If dt == 0, no integration: same timestamp
-            lastTime = now;
+            lastTime = now; // stesso timestamp, nessuna integrazione
         }
     }
 
@@ -67,27 +63,45 @@ public class PopulationEstimator {
         if (pop < min) min = pop;
     }
 
-    /**
-     * Returns the *time-weighted* average population:
-     *   N_bar = area / (lastTime - startTime)
-     */
-    public double getMean() {
-        double elapsed = lastTime - startTime;
-        return (elapsed > 0.0) ? (area / elapsed) : 0.0;
+    /** Tempo osservato finora. */
+    public double elapsed() {
+        return lastTime - startTime;
     }
 
-    // Optional getters for diagnostics
+    /** Media tempo-pesata E[N]. */
+    public double getMean() {
+        double T = elapsed();
+        return (T > 0.0) ? (area / T) : 0.0;
+    }
+
+    /** Varianza tempo-pesata Var[N] = E[N^2] - (E[N])^2. */
+    public double getVariance() {
+        double T = elapsed();
+        if (T <= 0.0) return 0.0;
+        double mean  = area  / T;
+        double mean2 = area2 / T;
+        double var = mean2 - mean * mean;
+        return (var > 0.0) ? var : 0.0; // clamp per numerica
+    }
+
+    /** Deviazione standard tempo-pesata. */
+    public double getStd() {
+        return Math.sqrt(getVariance());
+    }
+
+    // opzionali
     public int getMin() { return min; }
     public int getMax() { return max; }
 
     /**
-     * Finalizes the area integration up to a given time
-     * (e.g., at the end of simulation) before reading the mean.
+     * Finalizza l’integrazione fino a currentTime (es. fine simulazione)
+     * prima di leggere media/std.
      */
     public void finalizeAt(double currentTime) {
         double dt = currentTime - lastTime;
         if (dt > 0.0) {
-            area += pop * dt;
+            area  += pop * dt;
+            area2 += (double)pop * (double)pop * dt;
             lastTime = currentTime;
         }
     }

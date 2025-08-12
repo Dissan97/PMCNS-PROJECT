@@ -5,97 +5,108 @@ import com.g45.webappsim.simulator.NextEventScheduler;
 import java.util.function.BiConsumer;
 
 /**
- * Estimates the *time-weighted* average population for a single node.
- * Always updates the area on every system event (tick),
- * but increments/decrements the population ONLY if the event
- * belongs to the monitored node.
+ * Versione per-nodo della stima tempo-pesata di media e std della popolazione.
+ * Facciamo sempre il tick su ogni evento; incrementiamo/decrementiamo pop
+ * solo se l'evento riguarda il nodo monitorato.
  */
 public class PopulationEstimatorNode {
 
-    private final String node;  // name of the monitored node
+    private final String node; // nodo monitorato
 
     private int pop = 0;
+
     private final double startTime;
     private double lastTime;
-    private double area = 0.0;
+    private double area  = 0.0; // ∫ N_n(t) dt
+    private double area2 = 0.0; // ∫ N_n(t)^2 dt
 
     private int min = 0;
     private int max = 0;
 
-    private final BiConsumer<Event, NextEventScheduler> onArrival = this::nodeTickThenInc;
-    private final BiConsumer<Event, NextEventScheduler> onDeparture = this::nodeTickThenDec;
+    private final java.util.function.BiConsumer<Event, NextEventScheduler> onArrival   = this::nodeTickThenInc;
+    private final java.util.function.BiConsumer<Event, NextEventScheduler> onDeparture = this::nodeTickThenDec;
 
     public PopulationEstimatorNode(NextEventScheduler sched, String node) {
         this.node = node;
         this.startTime = sched.getCurrentTime();
-        this.lastTime = this.startTime;
+        this.lastTime  = this.startTime;
 
-        // Subscribe to ARRIVAL and DEPARTURE events
-        // (always tick, increment/decrement only if event.server == node)
-        sched.subscribe(Event.Type.ARRIVAL, onArrival);
+        // tick su QUALSIASI evento; +/- solo se e.getServer() == node
+        sched.subscribe(Event.Type.ARRIVAL,   onArrival);
         sched.subscribe(Event.Type.DEPARTURE, onDeparture);
     }
 
-    /**
-     * Updates the accumulated area up to the current time (global tick).
-     */
+    /** Tick globale: integra area e area2 fino a "ora". */
     private void tick(NextEventScheduler s) {
         double now = s.getCurrentTime();
-        double dt = now - lastTime;
+        double dt  = now - lastTime;
         if (dt > 0.0) {
-            area += pop * dt;
+            area  += pop * dt;
+            area2 += (double)pop * (double)pop * dt;
             lastTime = now;
         } else {
             lastTime = now;
         }
     }
 
+    private boolean nodeEquals(Event e) {
+        String server = e.getServer();
+        return server != null && server.equals(node);
+    }
+
     private void nodeTickThenInc(Event e, NextEventScheduler s) {
-        tick(s); // Tick on ANY event
-        // Increment only if ARRIVAL is for this node
-        if (nodeEquals(e)) {
+        tick(s);                 // sempre
+        if (nodeEquals(e)) {     // solo eventi del nodo
             pop += 1;
             if (pop > max) max = pop;
         }
     }
 
     private void nodeTickThenDec(Event e, NextEventScheduler s) {
-        tick(s); // Tick on ANY event
-        // Decrement only if DEPARTURE is for this node
-        if (nodeEquals(e)) {
+        tick(s);                 // sempre
+        if (nodeEquals(e)) {     // solo eventi del nodo
             pop -= 1;
             if (pop < min) min = pop;
         }
     }
 
-    private boolean nodeEquals(Event e) {
-        // Assumes Event has getServer() returning the node name (String)
-        // Adjust if your Event class uses a different property name.
-        String server = e.getServer();
-        return server != null && server.equals(node);
+    /** Tempo osservato finora. */
+    public double elapsed() {
+        return lastTime - startTime;
     }
 
-    /**
-     * Returns the time-weighted average population for this node.
-     */
+    /** Media tempo-pesata E[N_n]. */
     public double getMean() {
-        double elapsed = lastTime - startTime;
-        return (elapsed > 0.0) ? (area / elapsed) : 0.0;
+        double T = elapsed();
+        return (T > 0.0) ? (area / T) : 0.0;
     }
 
+    /** Varianza tempo-pesata per il nodo. */
+    public double getVariance() {
+        double T = elapsed();
+        if (T <= 0.0) return 0.0;
+        double mean  = area  / T;
+        double mean2 = area2 / T;
+        double var = mean2 - mean * mean;
+        return (var > 0.0) ? var : 0.0;
+    }
+
+    /** Deviazione standard tempo-pesata per il nodo. */
+    public double getStd() {
+        return Math.sqrt(getVariance());
+    }
+
+    // opzionali
     public int getMin() { return min; }
     public int getMax() { return max; }
-
     public String getNode() { return node; }
 
-    /**
-     * Finalizes the area integration up to a given time
-     * (e.g., at the end of simulation) before reading the mean.
-     */
+    /** Finalizza l’integrazione fino a currentTime. */
     public void finalizeAt(double currentTime) {
         double dt = currentTime - lastTime;
         if (dt > 0.0) {
-            area += pop * dt;
+            area  += pop * dt;
+            area2 += (double)pop * (double)pop * dt;
             lastTime = currentTime;
         }
     }
