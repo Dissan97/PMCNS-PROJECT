@@ -1,7 +1,10 @@
-# validation/formule.py
 # --------------------------------------------------------------
 #  Rete A-B-A-P-A (Processor-Sharing) – metriche teoriche
-#  Versione con covarianze opzionali (da cfg) o indipendenza di default
+#  Versione allineata: std_population come time-average (coerente con sim)
+#  - mean_population = somma E[N_k] (equivale anche a X * somma W_k)
+#  - std_population  = sqrt( Var(N_A)+Var(N_B)+Var(N_P) + 2*Cov(...) )
+#    con Var(N_k) = rho_k / (1 - rho_k)^2  (M/M/1, vale anche per PS con exp)
+#    e Cov opzionali da cfg (default = 0).
 # --------------------------------------------------------------
 
 import json
@@ -13,31 +16,20 @@ from typing import Dict, Any
 
 # ───────────────────────────────────────────────────────────────
 def load_cfg(path: Path) -> Dict[str, Any]:
-    """Carica il file JSON di configurazione."""
     with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
-# ───────────────────────────────────────────────────────────────
 def mm1_ps_mean_response(lam: float, mst: float) -> float:
-    """
-    Tempo medio di risposta E[T] per M/M/1-PS:
-      - lam: tasso di arrivo λ [job/s]
-      - mst: tempo medio di servizio E[S] [s]
-    Ritorna math.inf se ρ ≥ 1 (instabile).
-    (In questa implementazione non usata direttamente: lavoriamo su nodi fisici con domanda aggregata.)
-    """
     rho = lam * mst
     return math.inf if rho >= 1.0 else (mst / (1.0 - rho))
 
 
-# ───────────────────────────────────────────────────────────────
 def _parse_service_times(cfg: dict) -> Dict[tuple, float]:
     """
     Converte la mappa dei tempi medi di servizio per *visita* in:
       { ('A',1): E[S_A1], ('A',2): E[S_A2], ('A',3): E[S_A3], ('B',1): E[S_B], ('P',2): E[S_P] }
-    Il JSON può usare 'service_means_sec' (consigliato) o 'service_rates' (storico).
-    I valori sono TEMPI MEDI (secondi).
+    I valori SONO TEMPI MEDI (secondi).
     """
     raw = cfg.get("service_means_sec", cfg.get("service_rates"))
     if raw is None:
@@ -56,22 +48,21 @@ def _parse_service_times(cfg: dict) -> Dict[tuple, float]:
 def analytic_metrics(cfg: dict, gamma: float) -> dict:
     """
     Metriche teoriche per la web app A-B-A-P-A con PS (aggregazione per nodo fisico).
-    Assunzioni di base:
-      - Ogni nodo fisico k ha domanda aggregata D_k (somma visite).
-      - ρ_k = X * D_k, con X = gamma (throughput esterno impostato).
-      - E[W_k] = D_k / (1 - ρ_k). Per exp/PS, std[W_k] = E[W_k].
 
-    Covarianze:
-      - Opzionali da cfg:
-          rt_covariance_sec2: { "A,B": <sec^2>, "A,P": <sec^2>, "B,P": <sec^2> }
-          rt_corr:            { "A,B": <rho>,   "A,P": <rho>,   "B,P": <rho>   }
-        Se entrambi presenti, rt_covariance_sec2 ha precedenza per le coppie specificate.
-      - Se assenti → indipendenza (cov=0).
+    Scelte:
+      - 'mean_response_time' = W_A + W_B + W_P (con W_k = D_k/(1 - rho_k))
+      - 'std_response_time'  = di base indipendenza (poi puoi aggiornarla in validate.py
+                               con cov empiriche dai per-job)
+      - 'mean_population'    = somma E[N_k] = sum( rho_k/(1 - rho_k) )
+      - 'std_population'     = time-average: sqrt( sum Var(N_k) + 2*sum Cov(N_i,N_j) )
+                               con Var(N_k) = rho_k / (1 - rho_k)^2
+                               Cov opzionali dal cfg (pop_covariance_sec2 / pop_corr)
 
-    Ritorna dizionario con: stable, throughput, mean/std_response_time,
-    mean/std_population, utilizzo di sistema e per nodo, X_max, bottleneck.
+    Covarianze disponibili via cfg:
+      - rt_covariance_sec2 / rt_corr     → per tempi di risposta (se vuoi usarle altrove)
+      - pop_covariance_sec2 / pop_corr   → per popolazioni N_i (qui!)
     """
-    # ---- 1) Tempi medi per visita ------------------------------------------------
+    # ---- 1) Tempi medi per visita (secondi) -------------------------------------
     S = _parse_service_times(cfg)
 
     # ---- 2) Domande aggregate per nodo fisico -----------------------------------
@@ -108,50 +99,65 @@ def analytic_metrics(cfg: dict, gamma: float) -> dict:
             "X_max": X_max, "bottleneck": bottleneck,
         }
 
-    # ---- 5) Medie per nodo (PS) --------------------------------------------------
+    # ---- 5) Per-nodo W_k (PS) ---------------------------------------------------
     W_A = D_A / (1.0 - rho_A)
     W_B = D_B / (1.0 - rho_B)
     W_P = D_P / (1.0 - rho_P)
 
-    # ---- 6) Medie di sistema -----------------------------------------------------
+    # ---- 6) Response-time totals -------------------------------------------------
     W_sys = W_A + W_B + W_P
-    N_sys = X * W_sys
 
-    # ---- 6bis) Varianze e covarianze --------------------------------------------
-    # Per PS+exp: std(W_k) = W_k, quindi var(W_k) = W_k^2
+    # ---- 7) Population means (time-average) -------------------------------------
+    EN_A = rho_A / (1.0 - rho_A)
+    EN_B = rho_B / (1.0 - rho_B)
+    EN_P = rho_P / (1.0 - rho_P)
+    N_sys_mean = EN_A + EN_B + EN_P  # = X * W_sys (coerenza con Little)
+
+    # ---- 8) Population std (time-average, stile simulazione) --------------------
+    # Var per-nodo: Var(N_k) = rho_k / (1 - rho_k)^2
+    Var_A = rho_A / ((1.0 - rho_A) ** 2)
+    Var_B = rho_B / ((1.0 - rho_B) ** 2)
+    Var_P = rho_P / ((1.0 - rho_P) ** 2)
+
+    std_N_A = math.sqrt(Var_A)
+    std_N_B = math.sqrt(Var_B)
+    std_N_P = math.sqrt(Var_P)
+
+    # Covarianze opzionali tra popolazioni (default 0).
+    # Formati nel cfg:
+    #   pop_covariance_sec2: { "A,B": <jobs^2>, "A,P": <jobs^2>, "B,P": <jobs^2> }
+    #   pop_corr:            { "A,B": <rho>,     "A,P": <rho>,     "B,P": <rho>     }
+    # Se entrambi presenti, pop_covariance_sec2 ha precedenza per la coppia.
+    stds_pop = {"A": std_N_A, "B": std_N_B, "P": std_N_P}
+    cov_pop = _read_covariances_generic(
+        cfg,
+        key_cov="pop_covariance_sec2",
+        key_corr="pop_corr",
+        stds=stds_pop
+    )
+    cov_AB = cov_pop.get(("A", "B"), 0.0)
+    cov_AP = cov_pop.get(("A", "P"), 0.0)
+    cov_BP = cov_pop.get(("B", "P"), 0.0)
+
+    Var_N_sys = Var_A + Var_B + Var_P + 2.0 * (cov_AB + cov_AP + cov_BP)
+    if Var_N_sys < 0.0:
+        Var_N_sys = 0.0
+    std_N_sys = math.sqrt(Var_N_sys)
+
+    # ---- 9) std_response_time (base: indipendenza) ------------------------------
+    # (Puoi poi aggiornarlo in validate.py con cov empiriche dai per-job)
     std_W_A = W_A
     std_W_B = W_B
     std_W_P = W_P
-
-    var_W_A = std_W_A ** 2
-    var_W_B = std_W_B ** 2
-    var_W_P = std_W_P ** 2
-
-    # Covarianze opzionali dal cfg (altrimenti 0)
-    cov_pairs = _read_covariances(
-        cfg,
-        needed_pairs={("A", "B"): None, ("A", "P"): None, ("B", "P"): None},
-        stds={"A": std_W_A, "B": std_W_B, "P": std_W_P},
-    )
-    cov_AB = cov_pairs[("A", "B")]
-    cov_AP = cov_pairs[("A", "P")]
-    cov_BP = cov_pairs[("B", "P")]
-
-    # Varianza del totale R = W_A + W_B + W_P
-    var_R = var_W_A + var_W_B + var_W_P + 2.0 * (cov_AB + cov_AP + cov_BP)
-    var_R = max(var_R, 0.0)  # clamp numerico
-    std_W_sys = math.sqrt(var_R)
-
-    # Da Little (con X costante): std_N = X * std_R
-    std_N_sys = X * std_W_sys
+    std_W_sys_indep = math.sqrt(std_W_A**2 + std_W_B**2 + std_W_P**2)
 
     return {
         "stable": True,
         "throughput": X,
         "mean_response_time": W_sys,
-        "std_response_time": std_W_sys,
-        "mean_population": N_sys,
-        "std_population": std_N_sys,
+        "std_response_time": std_W_sys_indep,   # base (indep). Puoi sostituirlo in validate.py con cov empiriche
+        "mean_population": N_sys_mean,          # time-average, somma EN_k
+        "std_population": std_N_sys,            # time-average, come in simulazione
         "utilization": U_sys,
         "util_A": rho_A, "util_B": rho_B, "util_P": rho_P,
         "utilizations": {"A": rho_A, "B": rho_B, "P": rho_P},
@@ -161,34 +167,8 @@ def analytic_metrics(cfg: dict, gamma: float) -> dict:
 
 
 # ───────────────────────────────────────────────────────────────
-# Helper per leggere covarianze/correlazioni dal cfg
+# Helpers per leggere mappe coppie → cov/corr
 # ───────────────────────────────────────────────────────────────
-def _read_covariances(cfg: dict,
-                      needed_pairs: Dict[tuple, Any],
-                      stds: Dict[str, float]) -> Dict[tuple, float]:
-    """
-    Legge covarianze (sec^2) e/o correlazioni (rho) dal cfg e restituisce Cov[W_i,W_j] per le coppie richieste.
-    Formati accettati:
-      rt_covariance_sec2: { "A,B": 0.12, "A,P": 0.00, "B,P": 0.03 }
-      rt_corr:            { "A,B": 0.15, "A,P": 0.10, "B,P": 0.05 }
-    Se entrambi presenti, rt_covariance_sec2 ha precedenza per le coppie specificate.
-    """
-    cov_map = _normalize_pair_map(cfg.get("rt_covariance_sec2", {}))
-    corr_map = _normalize_pair_map(cfg.get("rt_corr", {}))
-
-    out: Dict[tuple, float] = {}
-    for (i, j) in needed_pairs.keys():
-        key = tuple(sorted((i, j)))
-        if key in cov_map:
-            out[key] = float(cov_map[key])
-        elif key in corr_map:
-            rho = float(corr_map[key])
-            out[key] = rho * stds[i] * stds[j]
-        else:
-            out[key] = 0.0
-    return out
-
-
 def _normalize_pair_map(raw: dict) -> Dict[tuple, float]:
     """
     Normalizza chiavi di coppia in tuple ordinate ('A','B').
@@ -202,4 +182,27 @@ def _normalize_pair_map(raw: dict) -> Dict[tuple, float]:
             continue
         i, j = sorted(parts[:2])
         out[(i, j)] = float(v)
+    return out
+
+
+def _read_covariances_generic(cfg: dict, key_cov: str, key_corr: str, stds: Dict[str, float]) -> Dict[tuple, float]:
+    """
+    Restituisce Cov per le coppie tra 'A','B','P' usando:
+      - key_cov  (covarianze espresse direttamente, unità coerenti con la metrica),
+      - key_corr (correlazioni ρ_ij → Cov = ρ_ij * std_i * std_j).
+    Precedenza a key_cov per le coppie specificate. Se nulla, 0.0.
+    """
+    cov_map  = _normalize_pair_map(cfg.get(key_cov, {}))
+    corr_map = _normalize_pair_map(cfg.get(key_corr, {}))
+    pairs = {("A", "B"), ("A", "P"), ("B", "P")}
+    out: Dict[tuple, float] = {}
+    for i, j in pairs:
+        key = tuple(sorted((i, j)))
+        if key in cov_map:
+            out[key] = float(cov_map[key])
+        elif key in corr_map:
+            rho = float(corr_map[key])
+            out[key] = rho * stds[i] * stds[j]
+        else:
+            out[key] = 0.0
     return out
