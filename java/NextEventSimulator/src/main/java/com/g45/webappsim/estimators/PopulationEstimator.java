@@ -2,107 +2,141 @@ package com.g45.webappsim.estimators;
 
 import com.g45.webappsim.simulator.Event;
 import com.g45.webappsim.simulator.NextEventScheduler;
+import com.g45.webappsim.simulator.TargetClass;
+
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.function.BiConsumer;
 
 /**
- * Stima della popolazione media *tempo-pesata* e della sua deviazione standard.
- * Integriamo area = ∫ N(t) dt e area2 = ∫ N(t)^2 dt aggiornando ad ogni evento
- * PRIMA di modificare la popolazione. Poi:
- *   mean = area / T,  E[N^2] = area2 / T,  var = E[N^2] - mean^2,  std = sqrt(var).
+ * Time-weighted estimator of TOTAL system population N(t), robust to internal routing.
+ *
+ * Rule:
+ * - On ARRIVAL: if jobId >= 0 and we see that jobId for the FIRST time, N++.
+ * - On DEPARTURE: if the routing from (server, jobClass) is EXIT, N-- for that jobId.
+ *
+ * We integrate:
+ *   area  = ∫ N(t) dt
+ *   area2 = ∫ [N(t)]^2 dt
+ * updating BEFORE changing N.
  */
 public class PopulationEstimator {
 
-    // popolazione corrente
+    // current total population in system
     private int pop = 0;
 
-    // integrazione nel tempo
+    // time integration
     private final double startTime;
     private double lastTime;
     private double area  = 0.0; // ∫ N(t) dt
-    private double area2 = 0.0; // ∫ N(t)^2 dt
+    private double area2 = 0.0; // ∫ [N(t)]^2 dt
 
-    // opzionali (diagnostica)
+    // diagnostics
     private int min = 0;
     private int max = 0;
 
-    // handler registrati
-    private final BiConsumer<Event, NextEventScheduler> onArrival   = this::tickThenInc;
-    private final BiConsumer<Event, NextEventScheduler> onDeparture = this::tickThenDec;
+    // routing to detect EXIT on departures
+    private final Map<String, Map<String, TargetClass>> routing;
 
-    public PopulationEstimator(NextEventScheduler sched) {
+    // set of jobs currently inside the system (by jobId)
+    private final Set<Integer> inSystem = new HashSet<>();
+
+    // handlers
+    private final BiConsumer<Event, NextEventScheduler> onArrival   = this::tickThenMaybeEnter;
+    private final BiConsumer<Event, NextEventScheduler> onDeparture = this::tickThenMaybeExit;
+
+    public PopulationEstimator(NextEventScheduler sched,
+                               Map<String, Map<String, TargetClass>> routing) {
+        this.routing = routing;
+
         this.startTime = sched.getCurrentTime();
         this.lastTime  = this.startTime;
 
-        // ascolta arrivi e partenze (tick sempre prima di cambiare pop)
+        // listen to arrivals and departures; always tick BEFORE changing N
         sched.subscribe(Event.Type.ARRIVAL,   onArrival);
         sched.subscribe(Event.Type.DEPARTURE, onDeparture);
     }
 
-    /** Aggiorna area e area2 fino a "ora" senza cambiare pop. */
+    /** Update area and area2 up to "now" without changing pop. */
     private void tick(NextEventScheduler s) {
         double now = s.getCurrentTime();
         double dt  = now - lastTime;
         if (dt > 0.0) {
             area  += pop * dt;
-            area2 += (double)pop * (double)pop * dt;
-            lastTime = now;
-        } else {
-            lastTime = now; // stesso timestamp, nessuna integrazione
+            area2 += (double) pop * (double) pop * dt;
         }
+        lastTime = now;
     }
 
-    private void tickThenInc(Event e, NextEventScheduler s) {
+    /** On ARRIVAL: first time we see a real job (jobId >= 0) → enter system. */
+    private void tickThenMaybeEnter(Event e, NextEventScheduler s) {
         tick(s);
-        pop += 1;
-        if (pop > max) max = pop;
+        int id = e.getJobId();
+        if (id >= 0 && inSystem.add(id)) {
+            pop += 1;
+            if (pop > max) max = pop;
+        }
+        // internal arrivals (same id seen before) do NOT change N
+        // external trigger events use jobId == -1 → ignored here
     }
 
-    private void tickThenDec(Event e, NextEventScheduler s) {
+    /** On DEPARTURE: decrement only when routing to EXIT. */
+    private void tickThenMaybeExit(Event e, NextEventScheduler s) {
         tick(s);
-        pop -= 1;
-        if (pop < min) min = pop;
+        if (routesToExit(e.getServer(), e.getJobClass())) {
+            int id = e.getJobId();
+            if (id >= 0 && inSystem.remove(id)) {
+                pop -= 1;
+                if (pop < min) min = pop;
+            }
+        }
+        // internal departures do NOT change N
     }
 
-    /** Tempo osservato finora. */
+    private boolean routesToExit(String server, int jobClass) {
+        Map<String, TargetClass> m = routing.get(server);
+        if (m == null) return false;
+        TargetClass tc = m.get(Integer.toString(jobClass));
+        return tc != null && "EXIT".equalsIgnoreCase(tc.eventClass());
+    }
+
+    /** Observed time span so far. */
     public double elapsed() {
         return lastTime - startTime;
     }
 
-    /** Media tempo-pesata E[N]. */
+    /** Time-weighted mean E[N]. */
     public double getMean() {
         double T = elapsed();
         return (T > 0.0) ? (area / T) : 0.0;
     }
 
-    /** Varianza tempo-pesata Var[N] = E[N^2] - (E[N])^2. */
+    /** Time-weighted variance Var[N] = E[N^2] - (E[N])^2. */
     public double getVariance() {
         double T = elapsed();
         if (T <= 0.0) return 0.0;
         double mean  = area  / T;
         double mean2 = area2 / T;
         double var = mean2 - mean * mean;
-        return (var > 0.0) ? var : 0.0; // clamp per numerica
+        return (var > 0.0) ? var : 0.0;
     }
 
-    /** Deviazione standard tempo-pesata. */
+    /** Time-weighted standard deviation. */
     public double getStd() {
         return Math.sqrt(getVariance());
     }
 
-    // opzionali
     public int getMin() { return min; }
     public int getMax() { return max; }
 
-    /**
-     * Finalizza l’integrazione fino a currentTime (es. fine simulazione)
-     * prima di leggere media/std.
-     */
+    /** Close the last interval at currentTime BEFORE reading mean/std. */
     public void finalizeAt(double currentTime) {
         double dt = currentTime - lastTime;
         if (dt > 0.0) {
             area  += pop * dt;
-            area2 += (double)pop * (double)pop * dt;
-            lastTime = currentTime;
+            area2 += (double) pop * (double) pop * dt;
         }
+        lastTime = currentTime;
     }
 }

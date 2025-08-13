@@ -19,6 +19,6 @@
       "2": {"target": "A", "class": "3"}
     }
     },
-  "max_events": 500000,
-  "initial_arrival": 1000
+  "max_events": 5000000,
+  "initial_arrival": 0
 }

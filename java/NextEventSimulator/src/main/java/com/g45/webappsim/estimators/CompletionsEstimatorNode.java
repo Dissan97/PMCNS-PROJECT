@@ -44,7 +44,7 @@ public class CompletionsEstimatorNode extends CompletionsEstimator {
     @Override
     protected void onDeparture(Event e, NextEventScheduler s) {
         if (node.equals(e.getServer())) {
-            super.onDeparture(e, s);
+            count+=1;
         }
     }
 }

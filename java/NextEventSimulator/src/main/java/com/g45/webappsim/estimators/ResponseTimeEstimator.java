@@ -2,33 +2,53 @@ package com.g45.webappsim.estimators;
 
 import com.g45.webappsim.simulator.Event;
 import com.g45.webappsim.simulator.NextEventScheduler;
+import com.g45.webappsim.simulator.TargetClass;
+
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Stimatore globale dei tempi di risposta end-to-end (job → job).
- * Usa Welford per media e varianza online.
+ * Global end-to-end response time estimator (first external ARRIVAL -> EXIT).
+ * Uses Welford for mean/variance online.
  */
 public class ResponseTimeEstimator {
 
+    // start time per jobId (global scope)
     protected final Map<Integer, Double> arr = new HashMap<>();
     public final WelfordEstimator w = new WelfordEstimator();
 
-    public ResponseTimeEstimator(NextEventScheduler sched) {
+    // routing to detect EXIT on departures
+    private final Map<String, Map<String, TargetClass>> routing;
+
+    public ResponseTimeEstimator(NextEventScheduler sched,
+                                 Map<String, Map<String, TargetClass>> routing) {
+        this.routing = routing;
         sched.subscribe(Event.Type.ARRIVAL,   this::onArrival);
         sched.subscribe(Event.Type.DEPARTURE, this::onDeparture);
     }
 
+    /** Record FIRST time we see this jobId (external entry). */
     protected void onArrival(Event e, NextEventScheduler s) {
-        if (e.getJobId() != -1) {
-            arr.put(e.getJobId(), e.getTime());
+        int id = e.getJobId();
+        if (id >= 0 && !arr.containsKey(id)) {
+            arr.put(id, e.getTime());
         }
     }
 
+    /** Only on EXIT: close the end-to-end response time. */
     protected void onDeparture(Event e, NextEventScheduler s) {
-        Double at = arr.remove(e.getJobId());
+        if (!routesToExit(e.getServer(), e.getJobClass())) return;
+        int id = e.getJobId();
+        Double at = arr.remove(id);
         if (at != null) {
             w.add(e.getTime() - at);
         }
+    }
+
+    protected boolean routesToExit(String server, int jobClass) {
+        Map<String, TargetClass> m = routing.get(server);
+        if (m == null) return false;
+        TargetClass tc = m.get(Integer.toString(jobClass));
+        return tc != null && "EXIT".equalsIgnoreCase(tc.eventClass());
     }
 }
