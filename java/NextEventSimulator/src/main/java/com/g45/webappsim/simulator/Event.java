@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * the same timestamp.
  * </p>
  */
-public final class Event implements Comparable<Event> {
+public class Event implements Comparable<Event> {
 
     /**
      * Enumeration of possible event types in the simulation.

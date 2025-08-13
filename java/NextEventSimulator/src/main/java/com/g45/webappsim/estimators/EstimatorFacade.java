@@ -1,5 +1,6 @@
 package com.g45.webappsim.estimators;
 
+import com.g45.webappsim.App;
 import com.g45.webappsim.logging.SysLogger;
 import com.g45.webappsim.simulator.Network;
 import com.g45.webappsim.simulator.NextEventScheduler;
@@ -16,7 +17,7 @@ import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import static com.g45.webappsim.App.cfgPath;
+
 
 /**
  * Facade che colleziona metriche globali e per-nodo.
@@ -181,7 +182,7 @@ public class EstimatorFacade {
             double meanPop, double stdPop, double throughput, double utilization, double elapsed) {
         try {
             String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
-            String cfgFile = cfgPath.replace(".json", "");
+            String cfgFile = App.getCfgPath().replace(".json", "");
             int dot = cfgFile.lastIndexOf('.');
             String cfgStem = (dot > 0 ? cfgFile.substring(0, dot) : cfgFile);
 

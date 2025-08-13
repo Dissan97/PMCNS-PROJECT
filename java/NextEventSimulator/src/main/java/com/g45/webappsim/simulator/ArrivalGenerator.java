@@ -82,7 +82,7 @@ public class ArrivalGenerator {
      * @param scheduler  The simulation's {@link NextEventScheduler}.
      */
     private void onArrival(Event ev, NextEventScheduler scheduler) {
-        if (!active) return;
+        if (!active || ev instanceof BootstrapEvent) return;
         if (ev.getJobId() == -1 && targetNode.equals(ev.getServer())) {
             double ia = RVMS.idfExponential(1.0 / rate, rng.random());
             Event nextExternal = new Event(0.0, Event.Type.ARRIVAL, targetNode, -1, jobClass);

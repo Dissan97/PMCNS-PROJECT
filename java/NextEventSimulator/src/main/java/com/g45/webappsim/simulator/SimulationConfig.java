@@ -2,6 +2,9 @@ package com.g45.webappsim.simulator;
 
 import com.g45.webappsim.lemer.Rngs;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -45,6 +48,17 @@ public class SimulationConfig {
      * Random number generator set for the simulation.
      */
     private Rngs rngs = new Rngs();
+
+    /**
+     * Initial Arrival Events in the system
+     */
+    private int initialArrival = 0;
+
+    /**
+     * the seeds for the simulation
+     */
+    private List<Integer> seeds = new ArrayList<>(Arrays.asList(314159265, 271828183, 141421357,
+            1732584193, 123456789));
 
     /**
      * Creates a default empty configuration.
@@ -135,16 +149,39 @@ public class SimulationConfig {
         this.rngs = rngs;
     }
 
+    public void setInitialArrival(int initialArrival) {
+        this.initialArrival = initialArrival;
+    }
+
+    public int getInitialArrival() {
+        return this.initialArrival;
+    }
+
+    public List<Integer> getSeeds() {
+        return seeds;
+    }
+
+    public void setSeeds(List<Integer> seeds) {
+        this.seeds = seeds;
+    }
+
     /**
      * @return a string representation of the configuration for debugging
      */
     @Override
     public String toString() {
-        return "SimulationConfig{" +
-                "arrivalRate=" + arrivalRate +
-                ", serviceRates=" + serviceRates +
-                ", routingMatrix=" + routingMatrix +
-                ", maxEvents=" + maxEvents +
-                '}';
+        StringBuilder sb = new StringBuilder("{\n\t");
+        routingMatrix.keySet().stream().sorted().forEach(
+                (key) -> sb.append(key).append("=").append(routingMatrix.get(key)).append("\n\t")
+        );
+        sb.append('}');
+        return "SimulationConfig={" +
+                "\narrivalRate=" + arrivalRate +
+                "\n, serviceRates=" + serviceRates +
+                "\n, routingMatrix=" + sb.toString() +
+                "\n, maxEvents=" + maxEvents +
+                "\n, initialArrival=" + initialArrival +
+                "\n, seeds=" + seeds +
+                "\n}";
     }
 }

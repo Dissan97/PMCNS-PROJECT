@@ -96,10 +96,24 @@ public class Simulation {
         this.network = new Network(serviceRates);
         this.rng = cfg.getRngs();
         this.rng.putSeed(seed);
+        generateBootstrap(cfg);
         this.arrivalGenerator = new ArrivalGenerator(scheduler, arrivalRate, "A", 1, rng);
         this.facade = new EstimatorFacade(network, scheduler, routingMatrix, seed);
         scheduler.subscribe(Event.Type.ARRIVAL, this::onArrival);
         scheduler.subscribe(Event.Type.DEPARTURE, this::onDeparture);
+    }
+
+    private void generateBootstrap(SimulationConfig config) {
+        for (int i = 0; i < config.getInitialArrival(); i++) {
+            Event bootstrapEvent = new BootstrapEvent(
+                    0.0,
+                    Event.Type.ARRIVAL,
+                    "A",
+                    -1,
+                    1
+            );
+            scheduler.scheduleAt(bootstrapEvent, 0.0);
+        }
     }
 
     /**
@@ -185,7 +199,7 @@ public class Simulation {
         while (scheduler.hasNext()) {
             scheduler.next();
             cnt++;
-            if (!arrivalsStopped && cnt >= maxEvents) {
+            if (!arrivalsStopped && cnt >= maxEvents + 5000) {
                 arrivalGenerator.setActive(false);
                 arrivalsStopped = true;
             }

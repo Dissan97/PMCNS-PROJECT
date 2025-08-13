@@ -1,15 +1,21 @@
-package com.g45.webappsim.simulator;
+package com.g45.webappsim.util;
 
 import com.g45.webappsim.logging.SysLogger;
+import com.g45.webappsim.simulator.SimulationConfig;
+import com.g45.webappsim.simulator.TargetClass;
 import org.jetbrains.annotations.NotNull;
+import org.json.JSONArray;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
-import static com.g45.webappsim.simulator.ConfigParser.JSONKeys.*;
+import static com.g45.webappsim.util.ConfigParser.JSONKeys.*;
 
 /**
  * Utility class for parsing JSON configuration files into {@link SimulationConfig} instances.
@@ -23,19 +29,19 @@ public class ConfigParser {
 
     /**
      * Default configuration file name for the first simulation scenario.
-     * <p>File is expected to be available on the classpath as a resource.</p>
+     * <p>The File is expected to be available on the classpath as a resource.</p>
      */
     public static final String DEFAULT_CONFIG_1 = "obj1.json";
 
     /**
      * Default configuration file name for the second simulation scenario.
-     * <p>File is expected to be available on the classpath as a resource.</p>
+     * <p> The File is expected to be available on the classpath as a resource.</p>
      */
     public static final String DEFAULT_CONFIG_2 = "obj2.json";
 
     /**
      * Default configuration file name for the third simulation scenario.
-     * <p>File is expected to be available on the classpath as a resource.</p>
+     * <p>The File is expected to be available on the classpath as a resource.</p>
      */
     public static final String DEFAULT_CONFIG_3 = "obj3.json";
 
@@ -58,10 +64,16 @@ public class ConfigParser {
     public static SimulationConfig getConfig(String path) {
         JSONTokener jsonTokener = null;
         try {
-            jsonTokener = new JSONTokener(Objects.requireNonNull(ConfigParser.class.getResourceAsStream(path)));
+            jsonTokener = new JSONTokener(Objects.requireNonNull(SimulationConfig.class.getResourceAsStream(path)));
         } catch (NullPointerException e) {
-            SysLogger.getInstance().getLogger().severe("Path missing: " + path + " Error: " + e.getMessage());
-            System.exit(-1);
+            try{
+                jsonTokener = new JSONTokener(new FileReader(path));
+            } catch (FileNotFoundException fex) {
+                String severe = SimulationConfig.class.getSimpleName() + "Path missing: " + path + " Error: "
+                        + fex.getMessage();
+                SysLogger.getInstance().getLogger().severe(severe);
+                System.exit(-1);
+            }
         }
         JSONObject jsonObject = new JSONObject(jsonTokener);
         double arrivalRate = jsonObject.getDouble(ARRIVAL_RATE.name().toLowerCase());
@@ -69,11 +81,29 @@ public class ConfigParser {
         JSONObject routingJson = jsonObject.getJSONObject(ROUTING_MATRIX.name().toLowerCase());
 
         SimulationConfig config = new SimulationConfig();
+
+
         config.setArrivalRate(arrivalRate);
         config.setMaxEvents(jsonObject.getInt(MAX_EVENTS.name().toLowerCase()));
 
         Map<String, Map<String, Double>> serviceMap = new HashMap<>();
         Map<String, Map<String, TargetClass>> routingMap = new HashMap<>();
+
+        if (jsonObject.has(INITIAL_ARRIVAL.name().toLowerCase())) {
+            config.setInitialArrival(jsonObject.getInt(INITIAL_ARRIVAL.name().toLowerCase()));
+        }
+
+        if (jsonObject.has(SEEDS.name().toLowerCase())) {
+            String info = ConfigParser.class.getSimpleName() + " found seeds parsing the csv";
+            SysLogger.getInstance().getLogger().info(info);
+            ArrayList<Integer> seeds = new ArrayList<>();
+            JSONArray seedsArray = jsonObject.getJSONArray(SEEDS.name().toLowerCase());
+             for (int i = 0; i < seedsArray.length(); i++){
+                 seeds.add(seedsArray.getInt(i));
+             }
+             config.setSeeds(seeds);
+        }
+
 
         parseService(serviceJson, serviceMap);
         parseMatrix(routingJson, routingMap);
@@ -117,20 +147,20 @@ public class ConfigParser {
             for (String clsKey : perClass.keySet()) {
                 Object rule = perClass.get(clsKey);
 
-                String clazz;    // Job class ID or "EXIT"
-                String target;   // Target node name (ignored for EXIT)
+                String clazz;
+                String target;
 
-                if (rule instanceof String) {
-                    clazz = (String) rule;
+                if (rule instanceof String theRule) {
+                    clazz = theRule;
                     target = node;
                 } else {
-                    JSONObject robj = perClass.getJSONObject(clsKey);
-                    target = robj.getString(TARGET.name().toLowerCase());
-                    Object cobj = robj.get(CLASS.name().toLowerCase());
-                    if (cobj instanceof Number) {
-                        clazz = Integer.toString(((Number) cobj).intValue());
+                    JSONObject targetJson = perClass.getJSONObject(clsKey);
+                    target = targetJson.getString(TARGET.name().toLowerCase());
+                    Object className = targetJson.get(CLASS.name().toLowerCase());
+                    if (className instanceof Number number) {
+                        clazz = Integer.toString((number).intValue());
                     } else {
-                        clazz = robj.getString(CLASS.name().toLowerCase());
+                        clazz = targetJson.getString(CLASS.name().toLowerCase());
                     }
                 }
 
@@ -138,7 +168,7 @@ public class ConfigParser {
                 routingMap.get(node).put(clsKey, tc);
             }
         }
-        SysLogger.getInstance().getLogger().info(routingMap.toString());
+
     }
 
     /**
@@ -156,7 +186,9 @@ public class ConfigParser {
         /** JSON key for the target node in routing rules. */
         TARGET,
         /** JSON key for the job class in routing rules. */
-        CLASS
+        CLASS,
+        INITIAL_ARRIVAL,
+        SEEDS
     }
 
 }
