@@ -135,10 +135,10 @@ class Simulation:
 
         # Stimatori (di sistema)
         self.rt = ResponseTimeEstimator(self.scheduler)        # tempi di risposta (event-based, per visita/nodo)
-        self.pop = PopulationEstimator(self.scheduler)         # opzionale/diagnostica, non usato per N
+        self.pop = PopulationEstimator(self.scheduler,self.routing_matrix)         # opzionale/diagnostica, non usato per N
         self.comp = CompletionsEstimator(self.scheduler, self.routing_matrix)
         self.ot = ObservationTimeEstimator(self.scheduler)
-        self.busy = BusyTimeEstimator(self.scheduler)          # tempo in cui il sistema non è vuoto
+        self.busy = BusyTimeEstimator(self.scheduler,self.routing_matrix)          # tempo in cui il sistema non è vuoto
 
         # Stimatori per nodo
         nodes = list(self.network.nodes.keys())

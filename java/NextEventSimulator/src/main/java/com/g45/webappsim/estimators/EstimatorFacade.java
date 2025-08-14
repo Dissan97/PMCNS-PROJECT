@@ -73,7 +73,7 @@ public class EstimatorFacade {
                                                                       // uscita EXIT)
         this.comp = new CompletionsEstimator(scheduler, routingMatrix);
         this.ot = new ObservationTimeEstimator(scheduler);
-        this.busy = new BusyTimeEstimator(scheduler);
+        this.busy = new BusyTimeEstimator(scheduler,routingMatrix);
 
         this.seed = seed;
 

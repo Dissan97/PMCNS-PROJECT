@@ -38,22 +38,23 @@ class ResponseTimeEstimator:
 
 class PopulationEstimator:
     """
-    Media della popolazione *pesata nel tempo* (time-weighted).
-    L'idea: integriamo area = ∫ pop(t) dt aggiornando ad ogni evento,
-    prima di modificare la popolazione. La media è area / tempo_osservato.
+    Media della popolazione *tempo-pesata* a livello di SISTEMA.
+    Regole:
+      - integra l'area PRIMA di cambiare N
+      - N++ solo su ARRIVAL esterno (e.job_id is None)
+      - N-- solo su DEPARTURE che instrada a EXIT
     """
-    def __init__(self, sched):
+    def __init__(self, sched, routing_matrix):
         self.pop = 0
         self.start_time = sched.current_time
         self.last_time = self.start_time
         self.area = 0.0
-        # manteniamo anche min/max opzionali (se ti servono)
         self.min = 0
         self.max = 0
+        self.routing_matrix = routing_matrix
 
-        # facciamo "tick" su ogni ARRIVAL/DEPARTURE per accumulare area
-        sched.subscribe("ARRIVAL", self._tick_then_inc)
-        sched.subscribe("DEPARTURE", self._tick_then_dec)
+        sched.subscribe("ARRIVAL",   self._tick_then_maybe_inc)
+        sched.subscribe("DEPARTURE", self._tick_then_maybe_dec)
 
     def _tick(self, s):
         """Aggiorna l'area fino all'istante corrente, senza cambiare pop."""
@@ -63,17 +64,19 @@ class PopulationEstimator:
             self.area += self.pop * dt
             self.last_time = now
 
-    def _tick_then_inc(self, e, s):
+    def _tick_then_maybe_inc(self, e, s):
         self._tick(s)
-        # incremento popolazione (arrivo in sistema)
-        self.pop += 1
-        if self.pop > self.max: self.max = self.pop
+        # ARRIVO ESTERNO: nel tuo simulatore ha job_id == None
+        if e.job_id is None:
+            self.pop += 1
+            if self.pop > self.max: self.max = self.pop
 
-    def _tick_then_dec(self, e, s):
+    def _tick_then_maybe_dec(self, e, s):
         self._tick(s)
-        # decremento popolazione (uscita dal sistema)
-        self.pop -= 1
-        if self.pop < self.min: self.min = self.pop
+        # DEPARTURE → decrementa solo se la prossima tappa è EXIT
+        if self.routing_matrix.get((e.server, e.job_class)) == "EXIT":
+            self.pop -= 1
+            if self.pop < self.min: self.min = self.pop
 
     def get_mean(self):
         """Media temporale N = area / (last_time - start_time)."""
@@ -108,37 +111,32 @@ class ObservationTimeEstimator:
 
     def elapsed(self): return self.end - self.start
 
-
 class BusyTimeEstimator:
-    def __init__(self, sched):
-        self.pop = 0
+    def __init__(self, sched, routing_matrix):
+        self.pop = 0                 # popolazione di SISTEMA
         self.busy = False
         self.last = sched.current_time
         self.total = 0.0
+        self.routing_matrix = routing_matrix
         sched.subscribe("ARRIVAL", self._on_arr)
         sched.subscribe("DEPARTURE", self._on_dep)
 
     def _on_arr(self, e, s):
-        if self.pop == 0:
-            self.busy = True;
-            self.last = s.current_time
-        self.pop += 1
+        # incremento solo su ARRIVAL esterno
+        if e.job_id is None:
+            if self.pop == 0:
+                self.busy = True
+                self.last = s.current_time
+            self.pop += 1
 
     def _on_dep(self, e, s):
-        self.pop -= 1
-        if self.pop == 0 and self.busy:
-            self.total += s.current_time - self.last
-            self.busy = False
+        # decremento solo su EXIT
+        if self.routing_matrix.get((e.server, e.job_class)) == "EXIT":
+            self.pop -= 1
+            if self.pop == 0 and self.busy:
+                self.total += s.current_time - self.last
+                self.busy = False
 
-    def get_busy_time(self):
-        return self.total
-
-    def finalize(self, current_time):
-        """Chiama questo metodo una sola volta, a fine simulazione,
-        per contare l’eventuale periodo busy ancora aperto."""
-        if self.pop > 0 and self.busy:
-            self.total += current_time - self.last
-            self.busy = False
 
 
 # ────────────────────────────────────────────────────────────────

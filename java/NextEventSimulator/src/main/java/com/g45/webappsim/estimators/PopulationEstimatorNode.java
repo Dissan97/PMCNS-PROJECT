@@ -2,12 +2,12 @@ package com.g45.webappsim.estimators;
 
 import com.g45.webappsim.simulator.Event;
 import com.g45.webappsim.simulator.NextEventScheduler;
-import java.util.function.BiConsumer;
 
 /**
- * Versione per-nodo della stima tempo-pesata di media e std della popolazione.
- * Facciamo sempre il tick su ogni evento; incrementiamo/decrementiamo pop
- * solo se l'evento riguarda il nodo monitorato.
+ * Stima tempo-pesata della popolazione del SINGOLO nodo.
+ * Regole:
+ *  - integriamo l'area PRIMA di modificare pop;
+ *  - incrementiamo/decrementiamo pop SOLO se l'evento riguarda il nodo monitorato.
  */
 public class PopulationEstimatorNode {
 
@@ -18,13 +18,10 @@ public class PopulationEstimatorNode {
     private final double startTime;
     private double lastTime;
     private double area  = 0.0; // ∫ N_n(t) dt
-    private double area2 = 0.0; // ∫ N_n(t)^2 dt
+    private double area2 = 0.0; // ∫ [N_n(t)]^2 dt
 
     private int min = 0;
     private int max = 0;
-
-    private final java.util.function.BiConsumer<Event, NextEventScheduler> onArrival   = this::nodeTickThenInc;
-    private final java.util.function.BiConsumer<Event, NextEventScheduler> onDeparture = this::nodeTickThenDec;
 
     public PopulationEstimatorNode(NextEventScheduler sched, String node) {
         this.node = node;
@@ -32,8 +29,8 @@ public class PopulationEstimatorNode {
         this.lastTime  = this.startTime;
 
         // tick su QUALSIASI evento; +/- solo se e.getServer() == node
-        sched.subscribe(Event.Type.ARRIVAL,   onArrival);
-        sched.subscribe(Event.Type.DEPARTURE, onDeparture);
+        sched.subscribe(Event.Type.ARRIVAL,   this::nodeTickThenInc);
+        sched.subscribe(Event.Type.DEPARTURE, this::nodeTickThenDec);
     }
 
     /** Tick globale: integra area e area2 fino a "ora". */
@@ -42,11 +39,9 @@ public class PopulationEstimatorNode {
         double dt  = now - lastTime;
         if (dt > 0.0) {
             area  += pop * dt;
-            area2 += (double)pop * (double)pop * dt;
-            lastTime = now;
-        } else {
-            lastTime = now;
+            area2 += (double) pop * (double) pop * dt;
         }
+        lastTime = now;
     }
 
     private boolean nodeEquals(Event e) {
@@ -71,9 +66,7 @@ public class PopulationEstimatorNode {
     }
 
     /** Tempo osservato finora. */
-    public double elapsed() {
-        return lastTime - startTime;
-    }
+    public double elapsed() { return lastTime - startTime; }
 
     /** Media tempo-pesata E[N_n]. */
     public double getMean() {
@@ -92,9 +85,7 @@ public class PopulationEstimatorNode {
     }
 
     /** Deviazione standard tempo-pesata per il nodo. */
-    public double getStd() {
-        return Math.sqrt(getVariance());
-    }
+    public double getStd() { return Math.sqrt(getVariance()); }
 
     // opzionali
     public int getMin() { return min; }
@@ -106,8 +97,8 @@ public class PopulationEstimatorNode {
         double dt = currentTime - lastTime;
         if (dt > 0.0) {
             area  += pop * dt;
-            area2 += (double)pop * (double)pop * dt;
-            lastTime = currentTime;
+            area2 += (double) pop * (double) pop * dt;
         }
+        lastTime = currentTime;
     }
 }

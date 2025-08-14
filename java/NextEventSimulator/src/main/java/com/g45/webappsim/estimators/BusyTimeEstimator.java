@@ -2,66 +2,96 @@ package com.g45.webappsim.estimators;
 
 import com.g45.webappsim.simulator.Event;
 import com.g45.webappsim.simulator.NextEventScheduler;
+import com.g45.webappsim.simulator.TargetClass;
+
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 /**
- * Estimates the total busy time of a system or resource during a simulation run.
- * <p>
- * A resource is considered "busy" when at least one job is present. This estimator:
- * <ul>
- *   <li>Subscribes to {@link Event.Type#ARRIVAL} and {@link Event.Type#DEPARTURE} events.</li>
- *   <li>Tracks the number of jobs currently in the system ({@code pop}).</li>
- *   <li>Accumulates the total time the system is busy.</li>
- * </ul>
- * The accumulated time can be retrieved via {@link #getBusyTime()} at any point,
- * and must be finalized with {@link #finalizeBusy(double)} at the end of the simulation.
- * </p>
+ * Tempo "busy" del SISTEMA: rete non vuota.
+ *
+ * Regole:
+ *  - ARRIVAL esterno (id<0): entra SUBITO → se passiamo da 0 a 1, inizia busy; incrementa "pendingAnon".
+ *  - Prima ARRIVAL con id>=0:
+ *      * se "pendingAnon" > 0 → consuma uno e registra l'id (nessun incremento pop);
+ *      * altrimenti → primo ingresso diretto con id noto (se passiamo da 0 a 1, apri busy; incrementa pop).
+ *  - DEPARTURE: scala SOLO su EXIT; se pop torna a 0, chiudi busy.
  */
 public class BusyTimeEstimator {
 
-    /** Current population in the resource. */
+    // popolazione di sistema per la logica busy
     protected int pop = 0;
 
-    /** Flag indicating if the resource is currently busy. */
+    // stato busy e tempi
     protected boolean busy = false;
-
-    /** Last timestamp when the busy state changed. */
     protected double last;
-
-    /** Accumulated busy time. */
     protected double total = 0.0;
 
-    /**
-     * Creates a busy time estimator and subscribes it to the given scheduler.
-     *
-     * @param sched the event scheduler driving the simulation
-     */
-    public BusyTimeEstimator(NextEventScheduler sched) {
+    // routing per riconoscere EXIT
+    private final Map<String, Map<String, TargetClass>> routing;
+
+    // job con id>=0 attualmente nel sistema (per evitare doppi incrementi/decrementi)
+    private final Set<Integer> inSystem = new HashSet<>();
+
+    // numero di job entrati come anonimi (id<0) in attesa del primo id>=0
+    private int pendingAnon = 0;
+
+    public BusyTimeEstimator(NextEventScheduler sched,
+                             Map<String, Map<String, TargetClass>> routing) {
+        this.routing = routing;
         this.last = sched.getCurrentTime();
-        sched.subscribe(Event.Type.ARRIVAL, this::onArrival);
+        sched.subscribe(Event.Type.ARRIVAL,   this::onArrival);
         sched.subscribe(Event.Type.DEPARTURE, this::onDeparture);
     }
 
-    /**
-     * Handles an arrival event: if the resource was idle, it becomes busy.
-     *
-     * @param e the event
-     * @param s the scheduler
-     */
+    /** ARRIVAL di sistema: apre busy se passiamo da 0 a 1. */
     protected void onArrival(Event e, NextEventScheduler s) {
-        if (pop == 0) {
-            busy = true;
-            last = s.getCurrentTime();
+        int id = e.getJobId();
+
+        if (id < 0) {
+            // ARRIVAL esterno: entra ORA e registra un anonimo
+            if (pop == 0) {
+                busy = true;
+                last = s.getCurrentTime();
+            }
+            pop += 1;
+            pendingAnon += 1;
+            return;
         }
-        pop += 1;
+
+        // id >= 0: se già visto, hop interno → ignora
+        if (inSystem.contains(id)) {
+            return;
+        }
+
+        // primo id>=0 per questo job
+        if (pendingAnon > 0) {
+            // matcha un anonimo precedente: NON incrementare pop, ma registra l'id
+            pendingAnon -= 1;
+            inSystem.add(id);
+        } else {
+            // ingresso diretto con id noto
+            inSystem.add(id);
+            if (pop == 0) {
+                busy = true;
+                last = s.getCurrentTime();
+            }
+            pop += 1;
+        }
     }
 
-    /**
-     * Handles a departure event: if the last job leaves, the busy time is updated.
-     *
-     * @param e the event
-     * @param s the scheduler
-     */
+    /** DEPARTURE di sistema: scala solo su EXIT; chiude busy quando pop torna a 0. */
     protected void onDeparture(Event e, NextEventScheduler s) {
+        if (!routesToExit(e.getServer(), e.getJobClass())) {
+            return; // partenze interne ignorate
+        }
+
+        int id = e.getJobId();
+        if (id >= 0) {
+            inSystem.remove(id);
+        }
+
         pop -= 1;
         if (pop == 0 && busy) {
             total += s.getCurrentTime() - last;
@@ -69,23 +99,17 @@ public class BusyTimeEstimator {
         }
     }
 
-    /**
-     * Returns the total accumulated busy time.
-     *
-     * @return the busy time in simulation time units
-     */
-    public double getBusyTime() {
-        return total;
+    private boolean routesToExit(String server, int jobClass) {
+        Map<String, TargetClass> m = routing.get(server);
+        if (m == null) return false;
+        TargetClass tc = m.get(Integer.toString(jobClass));
+        return tc != null && "EXIT".equalsIgnoreCase(tc.eventClass());
     }
 
-    /**
-     * Finalizes the busy time calculation at the end of the simulation.
-     * <p>
-     * This method should be called once at the end to ensure any ongoing busy period is accounted for.
-     * </p>
-     *
-     * @param currentTime the simulation's current time
-     */
+    /** Tempo totale in cui il sistema è stato non vuoto. */
+    public double getBusyTime() { return total; }
+
+    /** Finalizza l'eventuale intervallo busy aperto. */
     public void finalizeBusy(double currentTime) {
         if (pop > 0 && busy) {
             total += currentTime - last;
