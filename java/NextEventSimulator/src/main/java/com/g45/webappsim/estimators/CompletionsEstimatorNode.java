@@ -7,44 +7,49 @@ import com.g45.webappsim.simulator.TargetClass;
 import java.util.Map;
 
 /**
- * Specialized completion estimator that only counts completions
- * for a specific node in the network.
- * <p>
- * This class extends {@link CompletionsEstimator} but filters events so
- * that only {@link Event.Type#DEPARTURE} events originating from the
- * specified node are considered.
- * </p>
+ * Conta le DEPARTURE del SINGOLO nodo (tutte, indipendentemente dalla destinazione),
+ * con supporto al warm-up tramite baseline.
+ *
+ * Nota: anche se il nome storico dice "Completions", qui usiamo il contatore
+ * come "departures per nodo" per stimare il throughput del nodo.
+ * Il throughput globale resta basato su CompletionsEstimator (EXIT).
  */
-public class CompletionsEstimatorNode extends CompletionsEstimator {
+public class CompletionsEstimatorNode {
 
-    /** The node this estimator is bound to. */
     private final String node;
+    @SuppressWarnings("unused")
+    private final Map<String, Map<String, TargetClass>> routing; // tenuto per compatibilità, non usato
 
-    /**
-     * Creates a new node-specific completion estimator.
-     *
-     * @param sched   the event scheduler
-     * @param node    the node name to track
-     * @param routing the routing matrix (node -> job class -> target class)
-     */
+    private int totalCount = 0; // tutte le departure del nodo dall'inizio
+    private int baseCount  = 0; // baseline per finestra post-warmup
+
     public CompletionsEstimatorNode(NextEventScheduler sched,
                                     String node,
                                     Map<String, Map<String, TargetClass>> routing) {
-        super(sched, routing);
         this.node = node;
+        this.routing = routing;
+        sched.subscribe(Event.Type.DEPARTURE, this::onDeparture);
     }
 
-    /**
-     * Handles departure events, but only processes them if the
-     * event's server matches the configured node.
-     *
-     * @param e the departure event
-     * @param s the event scheduler
-     */
-    @Override
-    protected void onDeparture(Event e, NextEventScheduler s) {
+    /** Chiamare all'inizio della finestra di misura (post warm-up). */
+    public void startCollecting() {
+        baseCount = totalCount;
+    }
+
+    /** Totale assoluto (dall'inizio simulazione). */
+    public int getTotalCount() {
+        return totalCount;
+    }
+
+    /** Conteggio nella finestra post-warmup. */
+    public int getCountSinceStart() {
+        return totalCount - baseCount;
+    }
+
+    /** Conta TUTTE le departure che avvengono su questo nodo. */
+    private void onDeparture(Event e, NextEventScheduler s) {
         if (node.equals(e.getServer())) {
-            count+=1;
+            totalCount += 1;
         }
     }
 }

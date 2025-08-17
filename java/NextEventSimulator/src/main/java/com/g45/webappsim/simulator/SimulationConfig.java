@@ -17,6 +17,16 @@ import java.util.Map;
  */
 public class SimulationConfig {
 
+    private int warmupCompletions = 10_000; // default sensato
+
+    public int getWarmupCompletions() {
+        return warmupCompletions;
+    }
+
+    public void setWarmupCompletions(int warmupCompletions) {
+        this.warmupCompletions = warmupCompletions;
+    }
+
     /**
      * External arrival rate λ (jobs per unit time).
      */
@@ -172,8 +182,7 @@ public class SimulationConfig {
     public String toString() {
         StringBuilder sb = new StringBuilder("{\n\t");
         routingMatrix.keySet().stream().sorted().forEach(
-                (key) -> sb.append(key).append("=").append(routingMatrix.get(key)).append("\n\t")
-        );
+                (key) -> sb.append(key).append("=").append(routingMatrix.get(key)).append("\n\t"));
         sb.append('}');
         return "SimulationConfig={" +
                 "\narrivalRate=" + arrivalRate +
@@ -182,6 +191,7 @@ public class SimulationConfig {
                 "\n, maxEvents=" + maxEvents +
                 "\n, initialArrival=" + initialArrival +
                 "\n, seeds=" + seeds +
+                "\n, warmupCompletions=" + warmupCompletions +
                 "\n}";
     }
 }

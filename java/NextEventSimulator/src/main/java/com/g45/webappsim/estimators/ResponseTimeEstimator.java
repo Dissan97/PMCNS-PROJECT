@@ -15,10 +15,12 @@ public class ResponseTimeEstimator {
 
     // start time per jobId (global scope)
     protected final Map<Integer, Double> arr = new HashMap<>();
-    public final WelfordEstimator w = new WelfordEstimator();
+    public WelfordEstimator w = new WelfordEstimator();
 
     // routing to detect EXIT on departures
     private final Map<String, Map<String, TargetClass>> routing;
+
+    private boolean collecting = false;
 
     public ResponseTimeEstimator(NextEventScheduler sched,
                                  Map<String, Map<String, TargetClass>> routing) {
@@ -29,6 +31,7 @@ public class ResponseTimeEstimator {
 
     /** Record FIRST time we see this jobId (external entry). */
     protected void onArrival(Event e, NextEventScheduler s) {
+        if (!collecting) return; 
         int id = e.getJobId();
         if (id >= 0 && !arr.containsKey(id)) {
             arr.put(id, e.getTime());
@@ -37,6 +40,7 @@ public class ResponseTimeEstimator {
 
     /** Only on EXIT: close the end-to-end response time. */
     protected void onDeparture(Event e, NextEventScheduler s) {
+        if (!collecting) return;  
         if (!routesToExit(e.getServer(), e.getJobClass())) return;
         int id = e.getJobId();
         Double at = arr.remove(id);
@@ -50,5 +54,11 @@ public class ResponseTimeEstimator {
         if (m == null) return false;
         TargetClass tc = m.get(Integer.toString(jobClass));
         return tc != null && "EXIT".equalsIgnoreCase(tc.eventClass());
+    }
+
+    public void startCollecting() {
+        collecting = true;
+        this.w.reset();
+        this.arr.clear();
     }
 }

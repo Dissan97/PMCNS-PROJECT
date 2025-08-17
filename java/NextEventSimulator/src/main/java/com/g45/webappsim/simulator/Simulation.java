@@ -9,85 +9,33 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Represents a single Next-Event-Simulation run for the network model.
- * <p>
- * A {@code Simulation} sets up the network topology, arrival process, service rates,
- * routing logic, and runs events until the configured limit is reached.
- * </p>
- * <p>
- * Events are processed using a {@link NextEventScheduler} and are handled
- * by arrival and departure callbacks. Statistics are collected through
- * the {@link EstimatorFacade}.
- * </p>
+ * Next-Event Simulation.
+ * Warm-up ONLY by completions: measurement starts after warmupCompletions EXIT.
  */
 public class Simulation {
 
-    /**
-     * Counter to track how many simulations have been executed.
-     */
     public static final AtomicInteger SIMULATION_COUNTER = new AtomicInteger(0);
-
-    /**
-     * Shared instance of random variate generators.
-     */
     private static final Rvms RVMS = Rvms.getInstance();
 
-    /**
-     * Routing matrix mapping from node → (class → target node/class).
-     */
     private final Map<String, Map<String, TargetClass>> routingMatrix;
-
-    /**
-     * Maximum number of events before stopping arrivals.
-     */
     private final int maxEvents;
-
-    /**
-     * Event scheduler for managing future events.
-     */
     private final NextEventScheduler scheduler = new NextEventScheduler();
-
-    /**
-     * Network of service nodes.
-     */
     private final Network network;
-
-    /**
-     * Random number generator for the simulation.
-     */
     private final Rngs rng;
-
-    /**
-     * Arrival generator for external Poisson arrivals.
-     */
     private final ArrivalGenerator arrivalGenerator;
 
-    /**
-     * Total number of external arrivals observed in the simulation.
-     */
     private int totalExternalArrivals = 0;
-
-    /**
-     * Total number of jobs completed (reached EXIT).
-     */
     private int totalCompletedJobs = 0;
-
-    /**
-     * Flag to stop new arrivals once event cap is reached.
-     */
     private boolean arrivalsStopped = false;
 
-    /**
-     * Facade for collecting and computing performance metrics.
-     */
     private final EstimatorFacade facade;
 
-    /**
-     * Creates a simulation instance with the given configuration and seed.
-     *
-     * @param cfg  the simulation configuration
-     * @param seed the RNG seed
-     */
+    /** Soglia di completamenti (EXIT) per terminare il warm-up. */
+    private final int warmupCompletions;
+
+    /** True quando abbiamo iniziato a misurare (post warm-up). */
+    private boolean measuring = false;
+
     public Simulation(SimulationConfig cfg, long seed) {
         double arrivalRate = cfg.getArrivalRate();
         Map<String, Map<String, Double>> serviceRates = cfg.getServiceRates();
@@ -96,39 +44,41 @@ public class Simulation {
         this.network = new Network(serviceRates);
         this.rng = cfg.getRngs();
         this.rng.putSeed(seed);
+        this.warmupCompletions = cfg.getWarmupCompletions();
+
         generateBootstrap(cfg);
+
         this.arrivalGenerator = new ArrivalGenerator(scheduler, arrivalRate, "A", 1, rng);
         this.facade = new EstimatorFacade(network, scheduler, routingMatrix, seed);
+
         scheduler.subscribe(Event.Type.ARRIVAL, this::onArrival);
         scheduler.subscribe(Event.Type.DEPARTURE, this::onDeparture);
+
+        // Se warmup <= 0, misura da subito
+        if (warmupCompletions <= 0) {
+            facade.startMeasurement(scheduler);
+            measuring = true;
+            SysLogger.getInstance().getLogger().info("Warm-up disattivato: misura avviata subito.");
+        }
     }
 
     private void generateBootstrap(SimulationConfig config) {
         for (int i = 0; i < config.getInitialArrival(); i++) {
-            Event bootstrapEvent = new BootstrapEvent(
-                    0.0,
-                    Event.Type.ARRIVAL,
-                    "A",
-                    -1,
-                    1
-            );
+            Event bootstrapEvent = new BootstrapEvent(0.0, Event.Type.ARRIVAL, "A", -1, 1);
             scheduler.scheduleAt(bootstrapEvent, 0.0);
         }
     }
 
-    /**
-     * Handles an arrival event at a node.
-     * Creates a new {@link Job} for external arrivals or resumes an existing job.
-     *
-     * @param e the arrival event
-     * @param s the scheduler
-     */
     private void onArrival(Event e, NextEventScheduler s) {
         Node node = network.getNode(e.getServer());
         if (e.getJobId() == -1) {
             // External arrival
             int cls = e.getJobClass();
-            double meanService = node.getServiceMeans().get(cls);
+            Double meanService = node.getServiceMeans().get(cls);
+            if (meanService == null) {
+                SysLogger.getInstance().getLogger().severe("Missing service mean for node " + e.getServer() + " class " + cls);
+                return;
+            }
             double svc = RVMS.idfExponential(meanService, rng.random());
             Job job = new Job(cls, s.getCurrentTime(), svc);
             s.getJobTable().put(job.getId(), job);
@@ -142,13 +92,6 @@ public class Simulation {
         }
     }
 
-    /**
-     * Handles a departure event from a node.
-     * Routes the job to the next node or exits the system.
-     *
-     * @param e the departure event
-     * @param s the scheduler
-     */
     private void onDeparture(Event e, NextEventScheduler s) {
         Node node = network.getNode(e.getServer());
         Job job = s.getJobTable().get(e.getJobId());
@@ -161,13 +104,30 @@ public class Simulation {
 
         if ("EXIT".equalsIgnoreCase(tc.eventClass())) {
             totalCompletedJobs++;
+
+            // avvia la misura al raggiungimento della soglia di completamenti
+            if (!measuring && totalCompletedJobs >= warmupCompletions) {
+                facade.startMeasurement(s);
+                measuring = true;
+                SysLogger.getInstance().getLogger().info(
+                    String.format("Warm-up (completamenti) terminato dopo %d EXIT a t=%.3f s (%.3f h)",
+                        totalCompletedJobs, s.getCurrentTime(), s.getCurrentTime() / 3600.0)
+                );
+            }
+
+            // libera la jobTable per evitare leak
+            s.getJobTable().remove(job.getId());
             return;
         }
 
         String nextNode = tc.serverTarget();
         int nextClass = Integer.parseInt(tc.eventClass());
         job.setJobClass(nextClass);
-        double meanService = network.getNode(nextNode).getServiceMeans().get(nextClass);
+        Double meanService = network.getNode(nextNode).getServiceMeans().get(nextClass);
+        if (meanService == null) {
+            SysLogger.getInstance().getLogger().severe("Missing service mean for node " + nextNode + " class " + nextClass);
+            return;
+        }
         double svc = RVMS.idfExponential(meanService, rng.random());
         job.setRemainingService(svc);
 
@@ -175,44 +135,40 @@ public class Simulation {
         s.schedule(next);
     }
 
-    /**
-     * Looks up the routing rule for a given node and class.
-     *
-     * @param node the node name
-     * @param cls  the job class
-     * @return the target routing information, or {@code null} if none found
-     */
     private TargetClass lookupRouting(String node, int cls) {
         Map<String, TargetClass> m = routingMatrix.get(node);
         if (m == null) return null;
         return m.get(Integer.toString(cls));
     }
 
-    /**
-     * Runs the simulation until there are no more events to process.
-     * Stops new arrivals once {@link #maxEvents} is reached.
-     * Collects and logs performance statistics at the end.
-     */
     public void run() {
         int cnt = 0;
-        long start = System.nanoTime();
+        long wallStart = System.nanoTime();
+
         while (scheduler.hasNext()) {
             scheduler.next();
             cnt++;
+
+            // Stop nuovi arrivi quando superi la soglia eventi (margine +5000)
             if (!arrivalsStopped && cnt >= maxEvents + 5000) {
                 arrivalGenerator.setActive(false);
                 arrivalsStopped = true;
             }
         }
-        this.facade.calculateStats(this.scheduler, this.network);
-        long end = System.nanoTime();
-        long elapsed = end - start;
-        String msg = String.format("Simulation %d Completed: external=%d, done=%d, took=%f s",
+
+        if (!measuring) {
+            SysLogger.getInstance().getLogger()
+                .warning("Warm-up non attivato: statistiche raccolte dall'inizio della simulazione.");
+        }
+
+        facade.calculateStats(scheduler, network);
+
+        long wallEnd = System.nanoTime();
+        SysLogger.getInstance().getLogger().info(
+            String.format("Simulation %d Completed: external=%d, done=%d, took=%f s",
                 SIMULATION_COUNTER.incrementAndGet(),
-                totalExternalArrivals,
-                totalCompletedJobs,
-                elapsed / 1e9);
-        SysLogger.getInstance().getLogger().info(msg);
+                totalExternalArrivals, totalCompletedJobs, (wallEnd - wallStart) / 1e9)
+        );
 
         Event.reset();
         Job.reset();

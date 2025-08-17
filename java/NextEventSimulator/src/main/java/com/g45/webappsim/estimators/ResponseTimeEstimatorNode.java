@@ -21,6 +21,7 @@ public class ResponseTimeEstimatorNode extends ResponseTimeEstimator {
 
     private final String node;
     private final Map<Integer, Double> sumByJob = new HashMap<>();
+     private boolean collecting = false;
 
     public ResponseTimeEstimatorNode(NextEventScheduler sched,
                                              String node,
@@ -31,14 +32,22 @@ public class ResponseTimeEstimatorNode extends ResponseTimeEstimator {
 
     @Override
     protected void onArrival(Event e, NextEventScheduler s) {
+        if (!collecting) return; 
         if (e.getJobId() >= 0 && node.equals(e.getServer())) {
             // start per-visit
             arr.put(e.getJobId(), e.getTime());
         }
     }
 
+    public void startCollecting() {
+        collecting = true;
+        arr.clear();
+        sumByJob.clear();
+        w.reset();
+    }
     @Override
     protected void onDeparture(Event e, NextEventScheduler s) {
+        if (!collecting) return; 
         if (!node.equals(e.getServer())) return;
 
         int id = e.getJobId();

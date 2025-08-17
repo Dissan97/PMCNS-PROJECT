@@ -28,6 +28,11 @@ public class BusyTimeEstimatorNode extends BusyTimeEstimator {
         }
     }
 
+    public void startCollecting(double now) {
+        this.total = 0.0;
+        this.last = now;
+    }
+
     @Override
     protected void onDeparture(Event e, NextEventScheduler s) {
         if (node.equals(e.getServer())) {

@@ -99,6 +99,11 @@ public class BusyTimeEstimator {
         }
     }
 
+     public void startCollecting(double now) {
+        this.total = 0.0;
+        this.last  = now;
+    }
+
     private boolean routesToExit(String server, int jobClass) {
         Map<String, TargetClass> m = routing.get(server);
         if (m == null) return false;

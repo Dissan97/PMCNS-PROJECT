@@ -17,8 +17,13 @@
 #
 # ESEMPI:
 #   python validation\validate.py 1.2 config_obj1.json       .output_simulation\results_obj1_run*.csv
-#   python validation\validate.py 1.2 config_obj2_2fa.json   .output_simulation\results_obj2_2fa_run*.csv
-#   python validation\validate.py 1.2 config_obj3_heavy.json .output_simulation\results_obj3_heavy_run*.csv
+#   python validation\validate.py 1.2 config_obj2_2fa.json   .output_simulation\results_obj2_run*.csv
+#   python validation\validate.py 1.2 config_obj3_heavy.json .output_simulation\results_obj3_run*.csv
+
+#   Linux:
+#   python validation/validate.py 1.2 config_obj1.json       .output_simulation/results_obj1_run*.csv
+#   python validation/validate.py 1.2 config_obj2_2fa.json   .output_simulation/results_obj2_run*.csv
+#   python validation/validate.py 1.2 config_obj3_heavy.json .output_simulation/results_obj3_run*.csv
 # --------------------------------------------------------------
 
 import sys

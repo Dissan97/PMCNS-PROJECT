@@ -15,7 +15,7 @@ public class PopulationEstimatorNode {
 
     private int pop = 0;
 
-    private final double startTime;
+    private double startTime;
     private double lastTime;
     private double area  = 0.0; // ∫ N_n(t) dt
     private double area2 = 0.0; // ∫ [N_n(t)]^2 dt
@@ -31,6 +31,15 @@ public class PopulationEstimatorNode {
         // tick su QUALSIASI evento; +/- solo se e.getServer() == node
         sched.subscribe(Event.Type.ARRIVAL,   this::nodeTickThenInc);
         sched.subscribe(Event.Type.DEPARTURE, this::nodeTickThenDec);
+    }
+
+    public void startCollecting(double now) {
+        this.area = 0.0;
+        this.area2 = 0.0;
+        this.startTime = now;
+        this.lastTime = now;
+        this.min = this.pop;
+        this.max = this.pop;
     }
 
     /** Tick globale: integra area e area2 fino a "ora". */

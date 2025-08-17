@@ -115,5 +115,14 @@ public class ResponseTimePerJobCollector {
         double[] a = new double[src.size()];
         for (int i = 0; i < src.size(); i++) a[i] = src.get(i);
         return a;
+
+    }
+
+    public void startCollecting() {
+        sb.setLength(0);
+        tA.clear();
+        tB.clear();
+        tP.clear();
+        // non serve altro: le somme per-job vive nei Node estimator (già azzerate sopra)
     }
 }

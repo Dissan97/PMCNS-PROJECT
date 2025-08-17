@@ -18,7 +18,7 @@ import com.g45.webappsim.simulator.NextEventScheduler;
 public class ObservationTimeEstimator {
 
     /** The simulation time at which observation started. */
-    private final double start;
+    private double start;
 
     /** The simulation time of the last processed ARRIVAL or DEPARTURE event. */
     private double end;
@@ -44,6 +44,11 @@ public class ObservationTimeEstimator {
      */
     private void upd(Event e, NextEventScheduler s) {
         this.end = s.getCurrentTime();
+    }
+
+    public void startCollecting(double now) {
+        this.start = now;
+        this.end   = now;
     }
 
     /**

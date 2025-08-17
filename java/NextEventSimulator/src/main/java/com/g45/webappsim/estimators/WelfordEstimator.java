@@ -76,4 +76,12 @@ public class WelfordEstimator {
     public double getMax() {
         return n > 0 ? max : 0.0;
     }
+
+    public void reset() {
+        n = 0L;
+        mean = 0.0;
+        M2 = 0.0;
+        min = Double.POSITIVE_INFINITY;
+        max = Double.NEGATIVE_INFINITY;
+    }
 }

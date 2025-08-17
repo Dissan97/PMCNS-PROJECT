@@ -36,8 +36,8 @@ public class EstimatorFacade {
             "mean_response_time", "std_response_time",
             "mean_population", "std_population",
             "throughput", "utilization",
-            "std_response_time_cov", "std_population_cov" // NEW
-    );
+            "std_response_time_cov", "std_population_cov", // NEW
+            "simulation_time(H)");
     private static final List<String> HEADERS_NODE = List.of(
             "Node", "mean_response_time", "std_response_time",
             "mean_population", "std_population",
@@ -73,7 +73,7 @@ public class EstimatorFacade {
                                                                       // uscita EXIT)
         this.comp = new CompletionsEstimator(scheduler, routingMatrix);
         this.ot = new ObservationTimeEstimator(scheduler);
-        this.busy = new BusyTimeEstimator(scheduler,routingMatrix);
+        this.busy = new BusyTimeEstimator(scheduler, routingMatrix);
 
         this.seed = seed;
 
@@ -151,7 +151,8 @@ public class EstimatorFacade {
         double elapsed = ot.elapsed();
 
         // throughput globale da completamenti a EXIT
-        double throughput = elapsed > 0 ? (double) comp.count / elapsed : 0.0;
+        // DOPO (safe: se non chiami mai startCollecting(), è comunque == totale/tempo)
+        double throughput = elapsed > 0 ? (double) comp.getCountSinceStart() / elapsed : 0.0;
 
         // tempo di risposta overall: mean via somma per visite; std via Welford globale
         // end-to-end
@@ -187,12 +188,15 @@ public class EstimatorFacade {
         }
 
         // tabella globale
+        
+        double global_time = elapsed / 3600.0;
         List<Object> globalRow = List.of(
                 fmt(meanRtOverall), fmt(stdRtOverall),
                 fmt(meanPop), fmt(stdPop),
                 fmt(throughput), fmt(utilization),
                 (Double.isNaN(stdRtCov) ? "-" : fmt(stdRtCov)),
-                (Double.isNaN(stdPopCov) ? "-" : fmt(stdPopCov)));
+                (Double.isNaN(stdPopCov) ? "-" : fmt(stdPopCov)),
+                fmt(global_time));
         SysLogger.getInstance().getLogger()
                 .info("Global metrics (measured)\n" + makeTable(HEADERS, List.of(globalRow)));
 
@@ -206,7 +210,7 @@ public class EstimatorFacade {
             double Nn = popNode.get(n).getMean();
             double stdNn = popNode.get(n).getStd();
 
-            int completedAtNode = compNode.get(n).count;
+            int completedAtNode = compNode.get(n).getCountSinceStart();
             double Xn = elapsed > 0 ? (double) completedAtNode / elapsed : 0.0;
 
             double util = elapsed > 0 ? busyNode.get(n).getBusyTime() / elapsed : 0.0;
@@ -271,7 +275,7 @@ public class EstimatorFacade {
                 double Nn = popNode.get(n).getMean();
                 double stdNn = popNode.get(n).getStd();
 
-                int completedAtNode = compNode.get(n).count;
+                int completedAtNode = compNode.get(n).getCountSinceStart();
                 double Xn = elapsed > 0 ? (double) completedAtNode / elapsed : 0.0;
 
                 double util = elapsed > 0 ? busyNode.get(n).getBusyTime() / elapsed : 0.0;
@@ -340,4 +344,55 @@ public class EstimatorFacade {
         }
         return s / (n - 1);
     }
+
+    public void startCollectingAll(NextEventScheduler sched) {
+        double now = sched.getCurrentTime();
+
+        // completamenti
+        comp.startCollecting();
+        for (CompletionsEstimatorNode c : compNode.values())
+            c.startCollecting();
+
+        // popolazioni (tempo-pesate)
+        pop.startCollecting(now);
+        for (PopulationEstimatorNode pn : popNode.values())
+            pn.startCollecting(now);
+
+        // busy time (tempo occupato)
+        busy.startCollecting(now);
+        for (BusyTimeEstimatorNode bn : busyNode.values())
+            bn.startCollecting(now);
+
+        // tempi di risposta
+        rt.startCollecting();
+        for (ResponseTimeEstimatorNode rn : rtNode.values())
+            rn.startCollecting();
+
+        // finestra di osservazione
+        ot.startCollecting(now);
+
+        // opzionale: se vuoi che anche le cov per-job siano solo post-warmup
+        // perJobCollector.startCollecting();
+    }
+
+
+    public void startMeasurement(NextEventScheduler scheduler) {
+        double now = scheduler.getCurrentTime();
+
+        // global
+        ot.startCollecting(now);
+        busy.startCollecting(now);
+        pop.startCollecting(now);
+        comp.startCollecting();          // baseline per throughput
+        rt.startCollecting();            // std_RT end-to-end riparte
+
+        // per-nodo
+        for (PopulationEstimatorNode pn : popNode.values()) pn.startCollecting(now);
+        for (CompletionsEstimatorNode cn : compNode.values()) cn.startCollecting();
+        for (ResponseTimeEstimatorNode rn : rtNode.values()) rn.startCollecting();
+
+        // per-job
+        if (perJobCollector != null) perJobCollector.startCollecting();
+    }
+
 }
