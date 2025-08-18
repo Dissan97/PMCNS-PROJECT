@@ -49,11 +49,12 @@ public class UserUi {
             out.info("4) Edit Service Rate for a Node/Class");
             out.info("5) Edit Seeds");
             out.info("6) Edit warmup completion");
-            out.info("7) Show Summary");
-            out.info("8) Start Simulation");
-            out.info("9) Abort");
+            out.info("7) Edit batch");
+            out.info("8) Show Summary");
+            out.info("9) Start Simulation");
+            out.info("10) Abort");
 
-            int choice = askInt("Enter choice [1-9]: ", 1, 8);
+            int choice = askInt("Enter choice [1-10]: ", 1, 10);
             switch (choice) {
                 case 1 -> setArrivalRate(cfg);
                 case 2 -> setMaxEvents(cfg);
@@ -61,13 +62,14 @@ public class UserUi {
                 case 4 -> editServiceRate(cfg);
                 case 5 -> editSeeds(cfg);
                 case 6 -> editWarmUp(cfg);
-                case 7 -> printSummary(cfg);
-                case 8 -> {
+                case 7 -> editBatches(cfg);
+                case 8 -> printSummary(cfg);
+                case 9 -> {
                     if (askYesNo("Confirm start simulation now? [y/N]")) {
                         done = true;
                     }
                 }
-                case 9 -> {
+                case 10 -> {
                     out.warn("Aborted by user.");
                     return false;
                 }
@@ -86,7 +88,8 @@ public class UserUi {
         out.info("Max events: " + cfg.getMaxEvents());
         out.info("Initial arrivals: " + cfg.getInitialArrival());
         out.info("Seeds: " + cfg.getSeeds());
-        out.info("Warmup Completions " + cfg.getWarmupCompletions());
+        out.info("Warmup Completions: " + cfg.getWarmupCompletions());
+        out.info("Batch Length: " + cfg.getBatchLength() + " Max Batch: " + cfg.getMaxBatches());
         Map<String, Map<String, Double>> sr = cfg.getServiceRates();
         if (sr != null && !sr.isEmpty()) {
             out.info("Service rates (node → class → mean S):");
@@ -144,6 +147,22 @@ public class UserUi {
         sr.computeIfAbsent(node, k -> new HashMap<>()).put(clazz, meanService);
         out.info("Service rate set for (" + node + ", " + clazz + ") = " + meanService);
     }
+
+    private void editBatches(SimulationConfig cfg) {
+        out.info("Edit batches:\n Current setup Batch Length: "
+                + cfg.getBatchLength() + " Max Batch: " + cfg.getMaxBatches());
+        int batchLength = askAnyInt("Batch length");
+        if (batchLength <= 0) {
+            batchLength = cfg.getBatchLength();
+        }
+        cfg.setBatchLength(batchLength);
+        int maxBatch = askAnyInt("Max Batch");
+        if (maxBatch <= 0) {
+            maxBatch = cfg.getMaxBatches();
+        }
+        cfg.setMaxBatches(maxBatch);
+    }
+
     private void editWarmUp(SimulationConfig cfg) {
         out.info("Current Warmup Completions " + cfg.getWarmupCompletions());
         int warmup = askAnyInt("insert warmup setup");

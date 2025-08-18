@@ -19,6 +19,7 @@ public class SimulationConfig {
 
     private int warmupCompletions = 10_000; // default sensato
 
+
     public int getWarmupCompletions() {
         return warmupCompletions;
     }
@@ -69,6 +70,9 @@ public class SimulationConfig {
      */
     private List<Integer> seeds = new ArrayList<>(Arrays.asList(314159265, 271828183, 141421357,
             1732584193, 123456789));
+
+    private int batchLength = 128;
+    private int maxBatches = 8;
 
     /**
      * Creates a default empty configuration.
@@ -182,7 +186,7 @@ public class SimulationConfig {
     public String toString() {
         StringBuilder sb = new StringBuilder("{\n\t");
         routingMatrix.keySet().stream().sorted().forEach(
-                (key) -> sb.append(key).append("=").append(routingMatrix.get(key)).append("\n\t"));
+                key -> sb.append(key).append("=").append(routingMatrix.get(key)).append("\n\t"));
         sb.append('}');
         return "SimulationConfig={" +
                 "\narrivalRate=" + arrivalRate +
@@ -193,5 +197,22 @@ public class SimulationConfig {
                 "\n, seeds=" + seeds +
                 "\n, warmupCompletions=" + warmupCompletions +
                 "\n}";
+    }
+
+
+    public int getBatchLength() {
+        return this.batchLength;
+    }
+
+    public void setBatchLength(int batchLength) {
+        this.batchLength = batchLength;
+    }
+
+    public int getMaxBatches() {
+        return this.maxBatches;
+    }
+
+    public void setMaxBatches(int maxBatches) {
+        this.maxBatches = maxBatches;
     }
 }

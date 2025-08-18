@@ -10,6 +10,7 @@ import com.gforyas.webappsim.util.UserUi;
 
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.Scanner;
 import java.util.logging.Logger;
 
@@ -27,11 +28,7 @@ import java.util.logging.Logger;
  */
 public class App {
 
-    /**
-     * Predefined seeds used to initialize the random number generator
-     * for multiple independent simulation runs.
-     */
-    private static final int[] SEEDS = new int[]{314159265, 271828183, 141421357, 1732584193, 123456789};
+
 
     /**
      * Application logger instance for logging messages to console or file.
@@ -90,7 +87,7 @@ public class App {
         String info = App.class.getSimpleName() + ": starting simulation with provided configuration\n" +
                 config;
         LOGGER.info(info);
-        for (int seed : SEEDS) {
+        for (var seed : config.getSeeds()) {
             Simulation simulation = new Simulation(config, seed);
             simulation.run();
         }
@@ -112,19 +109,21 @@ public class App {
     private static boolean userChoose() {
         // Ask user for config choice
         Scanner scanner = new Scanner(System.in);
-        LOGGER.info("Select configuration:" +
-                "\n1) " + ConfigParser.DEFAULT_CONFIG_1 +
-                "\n2) " + ConfigParser.DEFAULT_CONFIG_2 +
-                "\n3) " + ConfigParser.DEFAULT_CONFIG_3 +
-                "\n4) Custom path" +
-                "\nEnter choice [1-4]: ");
-        String choice = scanner.nextLine().trim();
-
-        switch (choice) {
-            case "1" -> cfgPath = ConfigParser.DEFAULT_CONFIG_1;
-            case "2" -> cfgPath = ConfigParser.DEFAULT_CONFIG_2;
-            case "3" -> cfgPath = ConfigParser.DEFAULT_CONFIG_3;
-            case "4" -> {
+        List<String> configs = ConfigParser.getDefaultConfigs();
+        StringBuilder builder = new StringBuilder("Select configuration:\n");
+        for (int i = 0; i < configs.size(); i++) {
+            builder.append(i+1).append(") ").append(configs.get(i)).append("\n");
+        }
+        int otherSize = configs.size()+1;
+        builder.append(otherSize).append(") Custom path" +
+                "\nEnter choice [1-").append(otherSize).append("]: ");
+        String info = builder.toString();
+        LOGGER.info(info);
+        try {
+            int choice = Integer.parseInt(scanner.nextLine().trim());
+            if (choice > 0 && choice <= configs.size()){
+                cfgPath = configs.get(choice - 1);
+            } else if (choice == configs.size() + 1) {
                 LOGGER.info("Enter config file path");
                 cfgPath = scanner.nextLine().trim();
                 if (!Files.exists(Paths.get(cfgPath))) {
@@ -132,13 +131,18 @@ public class App {
                     LOGGER.severe(severe);
                     return true;
                 }
-            }
-            default -> {
-                LOGGER.severe("❌ Invalid choice");
+            } else {
+                LOGGER.severe("Invalid choice");
                 return true;
             }
+
+        }catch (NumberFormatException nfe){
+            String severe = "Parse number exception: " + nfe.getMessage();
+            LOGGER.severe(severe);
+            return true;
         }
         return false;
+
     }
 
     public static String getCfgPath() {

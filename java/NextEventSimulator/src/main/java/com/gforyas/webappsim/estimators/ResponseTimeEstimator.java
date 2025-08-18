@@ -61,4 +61,8 @@ public class ResponseTimeEstimator {
         this.welfordEstimator.reset();
         this.jobMap.clear();
     }
+
+    public WelfordEstimator getWelfordEstimator() {
+        return welfordEstimator;
+    }
 }

@@ -10,10 +10,13 @@ import org.json.JSONTokener;
 
 import java.io.FileNotFoundException;
 import java.io.FileReader;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
+import java.io.IOException;
+import java.net.URISyntaxException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.*;
+import java.util.stream.Stream;
 
 import static com.gforyas.webappsim.util.ConfigParser.JSONKeys.*;
 
@@ -30,31 +33,42 @@ import static com.gforyas.webappsim.util.ConfigParser.JSONKeys.*;
  */
 public class ConfigParser {
 
-    /**
-     * Default configuration file name for the first simulation scenario.
-     * <p>
-     * The File is expected to be available on the classpath as a resource.
-     * </p>
-     */
-    public static final String DEFAULT_CONFIG_1 = "obj1.json";
+
+    private static final List<String> DEFAULT_CONFIGS = findConfigs();
 
     /**
-     * Default configuration file name for the second simulation scenario.
-     * <p>
-     * The File is expected to be available on the classpath as a resource.
-     * </p>
+     * Returns the default config found in the resources
+     * @return List of configs
      */
-    public static final String DEFAULT_CONFIG_2 = "obj2.json";
+    public static List<String> getDefaultConfigs(){
+        return DEFAULT_CONFIGS;
+    }
 
-    /**
-     * Default configuration file name for the third simulation scenario.
-     * <p>
-     * The File is expected to be available on the classpath as a resource.
-     * </p>
-     */
-    public static final String DEFAULT_CONFIG_3 = "obj3.json";
+    @NotNull
+    private static List<String> findConfigs() {
 
-    /**
+        Path configDir;
+        try {
+            configDir = Paths.get(Objects.requireNonNull(SimulationConfig.class.getResource("")).toURI());
+        } catch (URISyntaxException e) {
+            String severe = "Error uri config file: " + e.getMessage();
+            SysLogger.getInstance().getLogger().severe(severe);
+            return Collections.emptyList();
+        }
+        try (Stream<Path> stream = Files.list(configDir)) {
+            return stream
+                    .map(p -> p.getFileName().toString())
+                    .filter(path -> path.endsWith(".json"))
+                    .toList();
+        } catch (IOException e) {
+            String severe = "Error reading config file: " + e.getMessage();
+            SysLogger.getInstance().getLogger().severe(severe);
+
+        }
+        return Collections.emptyList();
+    }
+
+        /**
      * Private constructor to prevent instantiation.
      *
      * @throws UnsupportedOperationException always thrown when called
@@ -118,11 +132,20 @@ public class ConfigParser {
 
         parseService(serviceJson, serviceMap);
         parseMatrix(routingJson, routingMap);
-
+        parseBatch(jsonObject, config);
         config.setServiceRates(serviceMap);
         config.setRoutingMatrix(routingMap);
 
         return config;
+    }
+
+    private static void parseBatch(@NotNull JSONObject jsonObject, SimulationConfig config) {
+        if (jsonObject.has(BATCH_LENGTH.name().toLowerCase())) {
+            config.setBatchLength(jsonObject.getInt(BATCH_LENGTH.name().toLowerCase()));
+        }
+        if (jsonObject.has(MAX_BATCHES.name().toLowerCase())) {
+            config.setMaxBatches(jsonObject.getInt(MAX_BATCHES.name().toLowerCase()));
+        }
     }
 
     /**
@@ -205,7 +228,9 @@ public class ConfigParser {
         CLASS,
         INITIAL_ARRIVAL,
         SEEDS,
-        WARMUP_COMPLETIONS
+        WARMUP_COMPLETIONS,
+        BATCH_LENGTH,
+        MAX_BATCHES
     }
 
 }

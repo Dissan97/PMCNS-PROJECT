@@ -4,9 +4,12 @@ import com.gforyas.webappsim.estimators.EstimatorFacade;
 import com.gforyas.webappsim.lemer.Rngs;
 import com.gforyas.webappsim.lemer.Rvms;
 import com.gforyas.webappsim.logging.SysLogger;
+import com.gforyas.webappsim.util.Printer;
 
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import static com.gforyas.webappsim.util.PersonalPrintStream.renderProgress;
 
 /**
  * Next-Event Simulation.
@@ -30,10 +33,14 @@ public class Simulation {
 
     private final EstimatorFacade facade;
 
-    /** Soglia di completamenti (EXIT) per terminare il warm-up. */
+    /**
+     * Soglia di completamenti (EXIT) per terminare il warm-up.
+     */
     private final int warmupCompletions;
 
-    /** True quando abbiamo iniziato a misurare (post warm-up). */
+    /**
+     * True quando abbiamo iniziato a misurare (post warm-up).
+     */
     private boolean measuring = false;
 
     public Simulation(SimulationConfig cfg, long seed) {
@@ -49,7 +56,8 @@ public class Simulation {
         generateBootstrap(cfg);
 
         this.arrivalGenerator = new ArrivalGenerator(scheduler, arrivalRate, "A", 1, rng);
-        this.facade = new EstimatorFacade(network, scheduler, routingMatrix, seed);
+        this.facade = new EstimatorFacade(network, scheduler, routingMatrix, seed,
+                cfg.getBatchLength(), cfg.getMaxBatches());
 
         scheduler.subscribe(Event.Type.ARRIVAL, this::onArrival);
         scheduler.subscribe(Event.Type.DEPARTURE, this::onDeparture);
@@ -76,7 +84,8 @@ public class Simulation {
             int cls = e.getJobClass();
             Double meanService = node.getServiceMeans().get(cls);
             if (meanService == null) {
-                SysLogger.getInstance().getLogger().severe("Missing service mean for node " + e.getServer() + " class " + cls);
+                String severe = "Missing service mean for node " + e.getServer() + " class " + cls;
+                SysLogger.getInstance().getLogger().severe(severe);
                 return;
             }
             double svc = RVMS.idfExponential(meanService, rng.random());
@@ -109,10 +118,13 @@ public class Simulation {
             if (!measuring && totalCompletedJobs >= warmupCompletions) {
                 facade.startMeasurement(s);
                 measuring = true;
+
+                String info = String.format("Warm-up (completamenti) terminato dopo %d EXIT a t=%.3f s (%.3f h)",
+                        totalCompletedJobs, s.getCurrentTime(), s.getCurrentTime() / 3600.0);
                 SysLogger.getInstance().getLogger().info(
-                    String.format("Warm-up (completamenti) terminato dopo %d EXIT a t=%.3f s (%.3f h)",
-                        totalCompletedJobs, s.getCurrentTime(), s.getCurrentTime() / 3600.0)
+                        info
                 );
+
             }
 
             // libera la jobTable per evitare leak
@@ -125,7 +137,8 @@ public class Simulation {
         job.setJobClass(nextClass);
         Double meanService = network.getNode(nextNode).getServiceMeans().get(nextClass);
         if (meanService == null) {
-            SysLogger.getInstance().getLogger().severe("Missing service mean for node " + nextNode + " class " + nextClass);
+            String severe = "Missing service mean for node " + nextNode + " class " + nextClass;
+            SysLogger.getInstance().getLogger().severe(severe);
             return;
         }
         double svc = RVMS.idfExponential(meanService, rng.random());
@@ -141,36 +154,68 @@ public class Simulation {
         return m.get(Integer.toString(cls));
     }
 
+
     public void run() {
         int cnt = 0;
         long wallStart = System.nanoTime();
+
+        // --- progress config ---
+        final int stepPercent = 10;            // update every 10%
+        int lastStep = -1;                     // last emitted step bucket
+        final int barWidth = 28;               // width of the ASCII bar
+        final long target = Math.max(1L, maxEvents); // avoid /0
+
+        // initial line (0%)
+
 
         while (scheduler.hasNext()) {
             scheduler.next();
             cnt++;
 
-            // Stop nuovi arrivi quando superi la soglia eventi (margine +5000)
+            // stop external arrivals after a small tail over maxEvents (unchanged)
             if (!arrivalsStopped && cnt >= maxEvents + 5000) {
                 arrivalGenerator.setActive(false);
                 arrivalsStopped = true;
             }
+
+            // emit progress every 10%
+            int pct = (int) Math.min(100L, (cnt * 100L) / target);
+            int stepNow = pct / stepPercent;
+            lastStep = showRender(stepNow, lastStep, wallStart, cnt, target, pct);
         }
+
+        // final stats + close progress line at 100%
+        double elapsedSec = (System.nanoTime() - wallStart) / 1e9;
+        double rateEvPerSec = elapsedSec > 0 ? cnt / elapsedSec : 0.0;
+        Printer.out().progress(renderProgress(100, rateEvPerSec, 0.0, barWidth));
+        Printer.out().progressDone();
 
         if (!measuring) {
             SysLogger.getInstance().getLogger()
-                .warning("Warm-up non attivato: statistiche raccolte dall'inizio della simulazione.");
+                    .warning("Warm-up non attivato: statistiche raccolte dall'inizio della simulazione.");
         }
 
         facade.calculateStats(scheduler, network);
 
         long wallEnd = System.nanoTime();
-        SysLogger.getInstance().getLogger().info(
-            String.format("Simulation %d Completed: external=%d, done=%d, took=%f s",
+        String finalOutput = String.format("Simulation %d Completed: external=%d, done=%d, took=%f s",
                 SIMULATION_COUNTER.incrementAndGet(),
-                totalExternalArrivals, totalCompletedJobs, (wallEnd - wallStart) / 1e9)
-        );
+                totalExternalArrivals, totalCompletedJobs, (wallEnd - wallStart) / 1e9);
+        SysLogger.getInstance().getLogger().info(finalOutput);
+    }
 
-        Event.reset();
-        Job.reset();
+    private int showRender(int stepNow, int lastStep, long wallStart, int cnt, long target, int pct) {
+        if (stepNow != lastStep) {
+            lastStep = stepNow;
+
+            double elapsedSec = (System.nanoTime() - wallStart) / 1e9;
+            double rateEvPerSec = elapsedSec > 0 ? cnt / elapsedSec : 0.0;
+            long remaining = Math.max(0L, target - cnt);
+            double etaSec = rateEvPerSec > 0 ? remaining / rateEvPerSec : Double.NaN;
+            Printer.out().progress(
+                    renderProgress(pct, rateEvPerSec, etaSec, 28)
+            );
+        }
+        return lastStep;
     }
 }

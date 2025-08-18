@@ -8,6 +8,7 @@ import com.gforyas.webappsim.simulator.TargetClass;
 import de.vandermeer.asciitable.AsciiTable;
 import de.vandermeer.asciitable.CWC_LongestLine;
 import de.vandermeer.skb.interfaces.transformers.textformat.TextAlignment;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -44,17 +45,23 @@ import static com.gforyas.webappsim.App.getCfgPath;
  */
 public class EstimatorFacade {
 
+    public static final String MEAN_RESPONSE_TIME = "mean_response_time";
+    public static final String STD_RESPONSE_TIME = "std_response_time";
+    public static final String MEAN_POPULATION = "mean_population";
+    public static final String STD_POPULATION = "std_population";
+    public static final String THROUGHPUT = "throughput";
+    public static final String UTILIZATION = "utilization";
     // Table headers
     private static final List<String> HEADERS = List.of(
-            "mean_response_time", "std_response_time",
-            "mean_population", "std_population",
-            "throughput", "utilization",
+            MEAN_RESPONSE_TIME, STD_RESPONSE_TIME,
+            MEAN_POPULATION, STD_POPULATION,
+            THROUGHPUT, UTILIZATION,
             "std_response_time_cov", "std_population_cov", // NEW
             "simulation_time(H)");
     private static final List<String> HEADERS_NODE = List.of(
-            "Node", "mean_response_time", "std_response_time",
-            "mean_population", "std_population",
-            "throughput", "utilization");
+            "Node", MEAN_RESPONSE_TIME, STD_RESPONSE_TIME,
+            MEAN_POPULATION, STD_POPULATION,
+            THROUGHPUT, UTILIZATION);
     private static final Path OUT_DIR = Path.of(".output_simulation");
 
     // Global estimators
@@ -74,6 +81,7 @@ public class EstimatorFacade {
     private final ResponseTimePerJobCollector perJobCollector;
 
     private final long seed;
+    private BatchMeansWindow batchMeans;
 
     /**
      * <p>Creates the estimator facade and registers all estimators/collectors.</p>
@@ -82,11 +90,13 @@ public class EstimatorFacade {
      * @param scheduler     the event scheduler (clock and event bus)
      * @param routingMatrix the routing matrix used by system-level estimators
      * @param seed          the random seed for reproducibility
+     * @param batchLength   the size of the batch
+     * @param maxBatches    the max number of batches
      */
     public EstimatorFacade(Network network,
                            NextEventScheduler scheduler,
                            Map<String, Map<String, TargetClass>> routingMatrix,
-                           long seed) {
+                           long seed, int batchLength, int maxBatches) {
 
         // Global estimators
         this.rt = new ResponseTimeEstimator(scheduler, routingMatrix);
@@ -116,11 +126,12 @@ public class EstimatorFacade {
         rtNode.put("A", rtA);
         rtNode.put("B", rtB);
         rtNode.put("P", rtP);
-
+        this.batchMeans = new BatchMeansWindow(network, scheduler, routingMatrix, batchLength, maxBatches);
         // Per-job collector (CSV + in-memory samples for var/cov)
         Path perJobCsv = OUT_DIR.resolve("per_job_times.csv");
         perJobCollector = new ResponseTimePerJobCollector(
                 scheduler, routingMatrix, rtA, rtB, rtP, perJobCsv);
+
     }
 
     /**
@@ -239,7 +250,7 @@ public class EstimatorFacade {
         }
         info = "Per-node metrics (measured)\n" + makeTable(HEADERS_NODE, perNodeRows);
         SysLogger.getInstance().getLogger().info(info);
-
+        printBatchesSummary(scheduler);
         // Save CSV + flush per-job samples
         saveToCsv(network, meanRtOverall, stdRtOverall, meanPop, stdPop,
                 throughput, utilization, stdRtCov, stdPopCov, elapsed);
@@ -273,7 +284,9 @@ public class EstimatorFacade {
     /**
      * <p>Per-node metrics container.</p>
      */
-    private record PerNodeResult(double sampleWait, double stdWn, double samplePopulation, double stdNn, double sampleMean, double util) { }
+    private record PerNodeResult(double sampleWait, double stdWn, double samplePopulation, double stdNn,
+                                 double sampleMean, double util) {
+    }
 
     /**
      * <p>Estimates the system response-time variance using per-job samples from nodes A, B, and P,
@@ -296,23 +309,55 @@ public class EstimatorFacade {
         return Math.max(0.0, varA + varB + varP + 2.0 * (covAB + covAP + covBP));
     }
 
+    private void printBatchesSummary(NextEventScheduler scheduler) {
+        if (batchMeans != null) {
+            batchMeans.finalizeAt(scheduler.getCurrentTime());
+
+            var headersSummary = List.of(
+                    "metric", "mean_of_means", "sample_std", "std_error"
+            );
+            BatchMeansSummary.MultiStats ms = BatchMeansSummary.summarizeAll(batchMeans.getResults());
+            var rowsSummary = new ArrayList<List<Object>>();
+            rowsSummary.add(List.of(MEAN_RESPONSE_TIME, ms.meanResponseTime().meanOfMeans, ms.meanResponseTime().sampleStd, ms.meanResponseTime().stdError));
+            rowsSummary.add(List.of("mean_response_time_weighted", ms.meanRtWeighted().weightedMean(), "-", ms.meanRtWeighted().stdError()));
+            rowsSummary.add(List.of("T_little(meanN/X)", ms.meanRtLittle().meanOfMeans, ms.meanRtLittle().sampleStd, ms.meanRtLittle().stdError));
+            rowsSummary.add(List.of(MEAN_POPULATION, ms.meanPopulation().meanOfMeans, ms.meanPopulation().sampleStd, ms.meanPopulation().stdError));
+            rowsSummary.add(List.of(THROUGHPUT, ms.throughput().meanOfMeans, ms.throughput().sampleStd, ms.throughput().stdError));
+            rowsSummary.add(List.of(UTILIZATION, ms.utilization().meanOfMeans, ms.utilization().sampleStd, ms.utilization().stdError));
+            rowsSummary.add(List.of("simulation_time(H)", ms.totalHours(), "-", "-"));
+// Covariance-based fields are not available per batch with current data:
+            rowsSummary.add(List.of("std_response_time_cov", "-", "-", "-"));
+            rowsSummary.add(List.of("std_population_cov", "-", "-", "-"));
+
+            String tableSummary = "Batch-means (summary)\n" + makeTable(headersSummary, rowsSummary);
+            SysLogger.getInstance().getLogger().info(tableSummary);
+
+            BatchMeansSummary s = new BatchMeansSummary();
+            batchMeans.getResults().forEach(b -> s.add(b.meanRt));
+            BatchMeansSummary.Stats st = s.summarize();
+            String summary = String.format(Locale.ROOT,
+                    "BatchMeans RT: batches=%d, mean-of-means=%.6f, sample-std=%.6f, std-error=%.6f",
+                    st.batches, st.meanOfMeans, st.sampleStd, st.stdError);
+            SysLogger.getInstance().getLogger().info(summary);
+        }
+    }
     /**
      * <p>Writes the global and per-node metrics to a CSV file under
      * <code>.output_simulation</code>. The filename embeds the configuration stem,
      * the run counter, the seed, and a timestamp.</p>
      *
-     * @param network         the network used to iterate nodes
-     * @param meanRtOverall   the visit-weighted mean response time
-     * @param stdRtOverall    the global response-time standard deviation (Welford)
-     * @param meanPop         the global mean population (time-weighted)
-     * @param stdPop          the global population standard deviation (time-weighted)
-     * @param throughput      the global throughput (completions per unit time)
-     * @param utilization     the global utilization (busy/elapsed)
-     * @param stdRtCov        the covariance-based response-time standard deviation
-     * @param stdPopCov       the covariance-based population standard deviation
-     * @param elapsed         the observed elapsed time
+     * @param network       the network used to iterate nodes
+     * @param meanRtOverall the visit-weighted mean response time
+     * @param stdRtOverall  the global response-time standard deviation (Welford)
+     * @param meanPop       the global mean population (time-weighted)
+     * @param stdPop        the global population standard deviation (time-weighted)
+     * @param throughput    the global throughput (completions per unit time)
+     * @param utilization   the global utilization (busy/elapsed)
+     * @param stdRtCov      the covariance-based response-time standard deviation
+     * @param stdPopCov     the covariance-based population standard deviation
+     * @param elapsed       the observed elapsed time
      */
-    private void saveToCsv(Network network,
+    private void saveToCsv(@NotNull Network network,
                            double meanRtOverall, double stdRtOverall,
                            double meanPop, double stdPop,
                            double throughput, double utilization,
@@ -390,7 +435,8 @@ public class EstimatorFacade {
      * @param x the sample array
      * @return the sample variance, or 0.0 if the sample size is ≤ 1
      */
-    private static double sampleVariance(double[] x) {
+    @Contract(pure = true)
+    private static double sampleVariance(double @NotNull [] x) {
         int n = x.length;
         if (n <= 1)
             return 0.0;
@@ -414,7 +460,8 @@ public class EstimatorFacade {
      * @param y the second sample array
      * @return the sample covariance, or 0.0 if the paired sample size is ≤ 1
      */
-    private static double sampleCovariance(double[] x, double[] y) {
+    @Contract(pure = true)
+    private static double sampleCovariance(double @NotNull [] x, double @NotNull [] y) {
         int n = Math.min(x.length, y.length);
         if (n <= 1)
             return 0.0;
@@ -431,39 +478,6 @@ public class EstimatorFacade {
             s += (x[i] - mx) * (y[i] - my);
         }
         return s / (n - 1);
-    }
-
-    /**
-     * <p>Starts a coordinated collection phase for all estimators, typically invoked
-     * immediately after warm-up. Time-weighted estimators receive the current timestamp.</p>
-     *
-     * @param sched the event scheduler providing the current simulation time
-     */
-    public void startCollectingAll(NextEventScheduler sched) {
-        double now = sched.getCurrentTime();
-
-        // Completions
-        comp.startCollecting();
-        for (CompletionsEstimatorNode c : compNode.values())
-            c.startCollecting();
-
-        // Populations (time-weighted)
-        pop.startCollecting(now);
-        for (PopulationEstimatorNode pn : popNode.values())
-            pn.startCollecting(now);
-
-        // Busy time (time-weighted)
-        busy.startCollecting(now);
-        for (BusyTimeEstimatorNode bn : busyNode.values())
-            bn.startCollecting(now);
-
-        // Response times
-        rt.startCollecting();
-        for (ResponseTimeEstimatorNode rn : rtNode.values())
-            rn.startCollecting();
-
-        // Observation window
-        ot.startCollecting(now);
     }
 
     /**
@@ -490,5 +504,8 @@ public class EstimatorFacade {
 
         // Per-job
         if (perJobCollector != null) perJobCollector.startCollecting();
+        if (batchMeans != null) {
+            batchMeans.startAt(now);
+        }
     }
 }
