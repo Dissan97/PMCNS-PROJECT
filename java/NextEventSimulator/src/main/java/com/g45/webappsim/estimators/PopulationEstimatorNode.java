@@ -4,104 +4,90 @@ import com.g45.webappsim.simulator.Event;
 import com.g45.webappsim.simulator.NextEventScheduler;
 
 /**
- * Stima tempo-pesata della popolazione del SINGOLO nodo.
- * Regole:
- *  - integriamo l'area PRIMA di modificare pop;
- *  - incrementiamo/decrementiamo pop SOLO se l'evento riguarda il nodo monitorato.
+ * Weighted-time estimator of the population of a SINGLE node.
+ *
+ * <p><b>Rules:</b></p>
+ * <ul>
+ *   <li>The integration of the area (∫N(t)dt and ∫N(t)²dt) is performed
+ *       <b>before</b> modifying the population.</li>
+ *   <li>The population is incremented or decremented <b>only</b> if the event
+ *       targets the monitored node.</li>
+ * </ul>
+ *
+ * <p>This class complements {@link PopulationEstimator}, which accounts for the
+ * whole system population. Here, the logic is restricted to a specific node and
+ * ignores routing to EXIT.</p>
  */
-public class PopulationEstimatorNode {
+public class PopulationEstimatorNode extends PopulationEstimator {
 
-    private final String node; // nodo monitorato
+    /** The monitored node identifier. */
+    private final String node;
 
-    private int pop = 0;
-
-    private double startTime;
-    private double lastTime;
-    private double area  = 0.0; // ∫ N_n(t) dt
-    private double area2 = 0.0; // ∫ [N_n(t)]^2 dt
-
-    private int min = 0;
-    private int max = 0;
-
+    /**
+     * Creates a node-level population estimator bound to a given node.
+     * The estimator subscribes to ARRIVAL and DEPARTURE events on the provided scheduler.
+     *
+     * @param sched the scheduler providing the simulation clock and event bus
+     * @param node  the logical name of the node to be tracked
+     */
     public PopulationEstimatorNode(NextEventScheduler sched, String node) {
         this.node = node;
         this.startTime = sched.getCurrentTime();
         this.lastTime  = this.startTime;
 
-        // tick su QUALSIASI evento; +/- solo se e.getServer() == node
+        // Subscribe to node-level ARRIVAL and DEPARTURE events
         sched.subscribe(Event.Type.ARRIVAL,   this::nodeTickThenInc);
         sched.subscribe(Event.Type.DEPARTURE, this::nodeTickThenDec);
     }
 
-    public void startCollecting(double now) {
-        this.area = 0.0;
-        this.area2 = 0.0;
-        this.startTime = now;
-        this.lastTime = now;
-        this.min = this.pop;
-        this.max = this.pop;
-    }
-
-    /** Tick globale: integra area e area2 fino a "ora". */
-    private void tick(NextEventScheduler s) {
-        double now = s.getCurrentTime();
-        double dt  = now - lastTime;
-        if (dt > 0.0) {
-            area  += pop * dt;
-            area2 += (double) pop * (double) pop * dt;
-        }
-        lastTime = now;
-    }
-
+    /**
+     * Checks whether a given event belongs to the monitored node.
+     *
+     * @param e the event
+     * @return {@code true} if the event is for the monitored node, {@code false} otherwise
+     */
     private boolean nodeEquals(Event e) {
         String server = e.getServer();
         return server != null && server.equals(node);
     }
 
+    /**
+     * Handles an ARRIVAL event: integrates the area up to the event time,
+     * and increments the node population if the event belongs to the node.
+     */
     private void nodeTickThenInc(Event e, NextEventScheduler s) {
-        tick(s);                 // sempre
-        if (nodeEquals(e)) {     // solo eventi del nodo
+        tick(s);
+        if (nodeEquals(e)) {
             pop += 1;
             if (pop > max) max = pop;
         }
     }
 
+    /**
+     * Handles a DEPARTURE event: integrates the area up to the event time,
+     * and decrements the node population if the event belongs to the node.
+     */
     private void nodeTickThenDec(Event e, NextEventScheduler s) {
-        tick(s);                 // sempre
-        if (nodeEquals(e)) {     // solo eventi del nodo
+        tick(s);
+        if (nodeEquals(e)) {
             pop -= 1;
             if (pop < min) min = pop;
         }
     }
 
-    /** Tempo osservato finora. */
-    public double elapsed() { return lastTime - startTime; }
-
-    /** Media tempo-pesata E[N_n]. */
-    public double getMean() {
-        double T = elapsed();
-        return (T > 0.0) ? (area / T) : 0.0;
-    }
-
-    /** Varianza tempo-pesata per il nodo. */
-    public double getVariance() {
-        double T = elapsed();
-        if (T <= 0.0) return 0.0;
-        double mean  = area  / T;
-        double mean2 = area2 / T;
-        double var = mean2 - mean * mean;
-        return (var > 0.0) ? var : 0.0;
-    }
-
-    /** Deviazione standard tempo-pesata per il nodo. */
-    public double getStd() { return Math.sqrt(getVariance()); }
-
-    // opzionali
-    public int getMin() { return min; }
-    public int getMax() { return max; }
+    /**
+     * Returns the identifier of the monitored node.
+     *
+     * @return the node name
+     */
     public String getNode() { return node; }
 
-    /** Finalizza l’integrazione fino a currentTime. */
+    /**
+     * Finalizes the integration up to the given simulation time.
+     *
+     * @param currentTime current simulation time
+     */
+    @Override
     public void finalizeAt(double currentTime) {
         double dt = currentTime - lastTime;
         if (dt > 0.0) {

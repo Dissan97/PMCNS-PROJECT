@@ -10,11 +10,9 @@ import java.util.Map;
 /**
  * Node-scoped response time estimator (per visit) that ALSO accumulates
  * per-job total time spent at this physical node.
- *
  * - On ARRIVAL at this node: store start time for this jobId.
  * - On DEPARTURE from this node: compute dt, add to Welford, and accumulate
  *   sumByJob[jobId] += dt. Multiple visits naturally sum (e.g., A visited 3 times).
- *
  * Use takeAndClear(jobId) at EXIT to retrieve the per-job total at this node.
  */
 public class ResponseTimeEstimatorNode extends ResponseTimeEstimator {
@@ -35,15 +33,16 @@ public class ResponseTimeEstimatorNode extends ResponseTimeEstimator {
         if (!collecting) return; 
         if (e.getJobId() >= 0 && node.equals(e.getServer())) {
             // start per-visit
-            arr.put(e.getJobId(), e.getTime());
+            jobMap.put(e.getJobId(), e.getTime());
         }
     }
 
+    @Override
     public void startCollecting() {
         collecting = true;
-        arr.clear();
+        jobMap.clear();
         sumByJob.clear();
-        w.reset();
+        welfordEstimator.reset();
     }
     @Override
     protected void onDeparture(Event e, NextEventScheduler s) {
@@ -51,10 +50,10 @@ public class ResponseTimeEstimatorNode extends ResponseTimeEstimator {
         if (!node.equals(e.getServer())) return;
 
         int id = e.getJobId();
-        Double t0 = arr.remove(id);
+        Double t0 = jobMap.remove(id);
         if (t0 != null) {
             double dt = e.getTime() - t0;
-            w.add(dt);                         // keep per-node mean/std as before
+            welfordEstimator.add(dt);                         // keep per-node mean/std as before
             sumByJob.merge(id, dt, Double::sum); // accumulate per job
         }
         // Do NOT call super.onDeparture(e,s) because that filters by EXIT (global logic).

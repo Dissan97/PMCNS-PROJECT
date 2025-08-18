@@ -7,67 +7,82 @@ import com.g45.webappsim.simulator.TargetClass;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.BiConsumer;
 
 /**
- * Stima tempo-pesata della popolazione TOTALE di sistema N(t), robusta al
- * routing interno.
+ * Weighted-time estimator of the TOTAL system population N(t), robust to
+ * internal routing.
  *
- * Regole:
- * - ARRIVAL esterno (id<0): entra SUBITO; incrementa pop e incrementa
- * "pendingAnon".
- * - Prima ARRIVAL con id>=0:
- * * se "pendingAnon" > 0 → consuma uno (matching dell'anonimo) e aggiungi l'id
- * al set, MA non incrementare pop;
- * * altrimenti (nessun anonimo pendente) → primo ingresso con id noto →
- * incrementa pop e registra l'id.
- * - DEPARTURE: scala SOLO se (server, jobClass) porta a EXIT; se id>=0 rimuovi
- * dal set.
+ * <p><b>Rules:</b></p>
+ * <ul>
+ *   <li><b>ARRIVAL with id &lt; 0 (external):</b> enters immediately, increments the population,
+ *   and increments {@code pendingAnon}.</li>
+ *   <li><b>First ARRIVAL with id &gt;= 0:</b>
+ *     <ul>
+ *       <li>If {@code pendingAnon} &gt; 0 → consumes one pending anonymous job, adds the id
+ *       to the set, but does not increment the population.</li>
+ *       <li>Otherwise (no pending anonymous jobs) → first entrance with known id → increments
+ *       the population and records the id.</li>
+ *     </ul>
+ *   </li>
+ *   <li><b>DEPARTURE:</b> decreases the population only if (server, jobClass) leads to EXIT;
+ *   if id &gt;= 0, also removes it from the set.</li>
+ * </ul>
  *
- * Integriamo PRIMA di modificare N: area = ∫N(t)dt, area2 = ∫N(t)^2 dt.
+ * <p>Integration occurs <b>before</b> modifying N(t): area = ∫N(t)dt,
+ * area2 = ∫N(t)<sup>2</sup> dt.</p>
  */
 public class PopulationEstimator {
 
-    // popolazione corrente di sistema
-    private int pop = 0;
+    /**
+     * Current system population.
+     */
+    protected int pop = 0;
 
-    // integrazione nel tempo
-    private double startTime;
-    private double lastTime;
-    private double area = 0.0; // ∫ N(t) dt
-    private double area2 = 0.0; // ∫ [N(t)]^2 dt
+    /** Start time of the measurement window. */
+    protected double startTime;
+    /** Last update timestamp. */
+    protected double lastTime;
+    /** Integrated area ∫N(t)dt. */
+    protected double area = 0.0;
+    /** Integrated squared area ∫N(t)<sup>2</sup>dt. */
+    protected double area2 = 0.0;
 
-    // diagnostica
-    private int min = 0;
-    private int max = 0;
+    /** Minimum population observed. */
+    protected int min = 0;
+    /** Maximum population observed. */
+    protected int max = 0;
 
-    // routing per riconoscere l'EXIT
-    private final Map<String, Map<String, TargetClass>> routing;
+    /** Routing matrix used to recognize EXIT transitions. */
+    private Map<String, Map<String, TargetClass>> routing;
 
-    // job (id>=0) già entrati nel sistema
+    /** Set of job ids (id &gt;= 0) currently in the system. */
     private final Set<Integer> inSystem = new HashSet<>();
 
-    // numero di job entrati come anonimi (id<0) che non hanno ancora avuto il primo
-    // id>=0
+    /**
+     * Number of anonymous jobs (id &lt; 0) that entered but have not yet been
+     * matched to their first known id (id &gt;= 0).
+     */
     private int pendingAnon = 0;
 
-    // handler
-    private final BiConsumer<Event, NextEventScheduler> onArrival = this::tickThenMaybeEnter;
-    private final BiConsumer<Event, NextEventScheduler> onDeparture = this::tickThenMaybeExit;
-
     public PopulationEstimator(NextEventScheduler sched,
-            Map<String, Map<String, TargetClass>> routing) {
+                               Map<String, Map<String, TargetClass>> routing) {
         this.routing = routing;
         this.startTime = sched.getCurrentTime();
         this.lastTime = this.startTime;
 
-        // ascolto eventi; integrare SEMPRE prima di cambiare N
-        sched.subscribe(Event.Type.ARRIVAL, onArrival);
-        sched.subscribe(Event.Type.DEPARTURE, onDeparture);
+        // Subscribe to events; always integrate BEFORE modifying N
+        sched.subscribe(Event.Type.ARRIVAL, this::tickThenMaybeEnter);
+        sched.subscribe(Event.Type.DEPARTURE, this::tickThenMaybeExit);
     }
 
-    /** Integra area/area2 fino a "ora" senza cambiare pop. */
-    private void tick(NextEventScheduler s) {
+    public PopulationEstimator() {
+    }
+
+    /**
+     * Integrates {@code area} and {@code area2} up to the current time
+     * without modifying the population.
+     */
+    protected void tick(NextEventScheduler s) {
         double now = s.getCurrentTime();
         double dt = now - lastTime;
         if (dt > 0.0) {
@@ -78,14 +93,15 @@ public class PopulationEstimator {
     }
 
     /**
-     * Gestione ARRIVAL di sistema con matching tra anonimi (id<0) e primo id>=0.
+     * Handles an ARRIVAL event with matching between anonymous jobs (id &lt; 0)
+     * and the first known id (id &gt;= 0).
      */
     private void tickThenMaybeEnter(Event e, NextEventScheduler s) {
         tick(s);
         int id = e.getJobId();
 
         if (id < 0) {
-            // ARRIVAL esterno: entra ORA e registra un anonimo in attesa del primo id
+            // External ARRIVAL: enters now and registers one pending anonymous job
             pop += 1;
             pendingAnon += 1;
             if (pop > max)
@@ -93,19 +109,18 @@ public class PopulationEstimator {
             return;
         }
 
-        // id >= 0: se già visto, è hop interno → ignora
+        // id >= 0: if already seen, this is an internal hop → ignore
         if (inSystem.contains(id)) {
             return;
         }
 
-        // primo id>=0 per questo job:
+        // First entrance with known id
         if (pendingAnon > 0) {
-            // questo id chiude un "anonimo" entrato prima → non incrementare pop, ma marca
-            // l'id come presente
+            // Matches one previously anonymous job → do not increment population, just mark id
             pendingAnon -= 1;
             inSystem.add(id);
         } else {
-            // nessun anonimo pendente: primo ingresso "diretto" con id noto
+            // No pending anonymous job: direct entrance with known id
             inSystem.add(id);
             pop += 1;
             if (pop > max)
@@ -113,7 +128,10 @@ public class PopulationEstimator {
         }
     }
 
-    /** DEPARTURE di sistema: scala solo su EXIT; rimuovi id dal set se presente. */
+    /**
+     * Handles a DEPARTURE event: decreases population only if the
+     * (server, jobClass) leads to EXIT. Removes id from the set if present.
+     */
     private void tickThenMaybeExit(Event e, NextEventScheduler s) {
         tick(s);
         if (routesToExit(e.getServer(), e.getJobClass())) {
@@ -126,7 +144,13 @@ public class PopulationEstimator {
         }
     }
 
-    /** Riconosce se (server, jobClass) instrada a EXIT. */
+    /**
+     * Recognizes if a (server, jobClass) pair routes to EXIT.
+     *
+     * @param server server identifier
+     * @param jobClass job class id
+     * @return {@code true} if this transition leads to EXIT, {@code false} otherwise
+     */
     private boolean routesToExit(String server, int jobClass) {
         Map<String, TargetClass> m = routing.get(server);
         if (m == null)
@@ -135,42 +159,72 @@ public class PopulationEstimator {
         return tc != null && "EXIT".equalsIgnoreCase(tc.eventClass());
     }
 
-    /** Tempo osservato finora. */
+    /**
+     * Returns the elapsed observation time.
+     *
+     * @return elapsed time
+     */
     public double elapsed() {
         return lastTime - startTime;
     }
 
-    /** Media tempo-pesata E[N]. */
+    /**
+     * Returns the weighted-time mean population E[N].
+     *
+     * @return mean population
+     */
     public double getMean() {
-        double T = elapsed();
-        return (T > 0.0) ? (area / T) : 0.0;
+        double time = elapsed();
+        return (time > 0.0) ? (area / time) : 0.0;
     }
 
-    /** Varianza tempo-pesata Var[N] = E[N^2] - (E[N])^2. */
+    /**
+     * Returns the weighted-time variance Var[N] = E[N²] − (E[N])².
+     *
+     * @return variance of population
+     */
     public double getVariance() {
-        double T = elapsed();
-        if (T <= 0.0)
+        double time = elapsed();
+        if (time <= 0.0)
             return 0.0;
-        double m1 = area / T;
-        double m2 = area2 / T;
+        double m1 = area / time;
+        double m2 = area2 / time;
         double v = m2 - m1 * m1;
-        return (v > 0.0) ? v : 0.0;
+        return Math.max(v, 0.0);
     }
 
-    /** Deviazione standard tempo-pesata. */
+    /**
+     * Returns the weighted-time standard deviation.
+     *
+     * @return standard deviation of population
+     */
     public double getStd() {
         return Math.sqrt(getVariance());
     }
 
+    /**
+     * Returns the minimum observed population.
+     *
+     * @return minimum population
+     */
     public int getMin() {
         return min;
     }
 
+    /**
+     * Returns the maximum observed population.
+     *
+     * @return maximum population
+     */
     public int getMax() {
         return max;
     }
 
-    /** Finalizza l’ultimo intervallo prima di leggere mean/std. */
+    /**
+     * Finalizes the last interval before reading mean or standard deviation.
+     *
+     * @param currentTime current simulation time
+     */
     public void finalizeAt(double currentTime) {
         double dt = currentTime - lastTime;
         if (dt > 0.0) {
@@ -180,15 +234,19 @@ public class PopulationEstimator {
         lastTime = currentTime;
     }
 
-    // aggiungi nel tuo PopulationEstimator
+    /**
+     * Starts a new measurement window from {@code now}. This does not reset
+     * the current population, {@code inSystem}, or {@code pendingAnon}.
+     *
+     * @param now current simulation time
+     */
     public void startCollecting(double now) {
-        // non toccare pop / inSystem / pendingAnon
         this.area = 0.0;
         this.area2 = 0.0;
         this.startTime = now;
         this.lastTime = now;
 
-        // opzionale: reimposta i bound a partire dallo stato corrente
+        // Optionally reset min and max based on current population
         this.min = this.pop;
         this.max = this.pop;
     }

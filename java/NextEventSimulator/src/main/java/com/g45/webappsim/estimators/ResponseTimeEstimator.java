@@ -14,8 +14,8 @@ import java.util.Map;
 public class ResponseTimeEstimator {
 
     // start time per jobId (global scope)
-    protected final Map<Integer, Double> arr = new HashMap<>();
-    public WelfordEstimator w = new WelfordEstimator();
+    protected final Map<Integer, Double> jobMap = new HashMap<>();
+    protected WelfordEstimator welfordEstimator = new WelfordEstimator();
 
     // routing to detect EXIT on departures
     private final Map<String, Map<String, TargetClass>> routing;
@@ -33,8 +33,8 @@ public class ResponseTimeEstimator {
     protected void onArrival(Event e, NextEventScheduler s) {
         if (!collecting) return; 
         int id = e.getJobId();
-        if (id >= 0 && !arr.containsKey(id)) {
-            arr.put(id, e.getTime());
+        if (id >= 0) {
+            jobMap.putIfAbsent(id, e.getTime());
         }
     }
 
@@ -43,9 +43,9 @@ public class ResponseTimeEstimator {
         if (!collecting) return;  
         if (!routesToExit(e.getServer(), e.getJobClass())) return;
         int id = e.getJobId();
-        Double at = arr.remove(id);
+        Double at = jobMap.remove(id);
         if (at != null) {
-            w.add(e.getTime() - at);
+            welfordEstimator.add(e.getTime() - at);
         }
     }
 
@@ -58,7 +58,7 @@ public class ResponseTimeEstimator {
 
     public void startCollecting() {
         collecting = true;
-        this.w.reset();
-        this.arr.clear();
+        this.welfordEstimator.reset();
+        this.jobMap.clear();
     }
 }

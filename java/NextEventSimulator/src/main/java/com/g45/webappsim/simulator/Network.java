@@ -10,6 +10,8 @@ import java.util.*;
  * Each node corresponds to a service station (e.g., "A", "B", "P")
  * and holds the mean service times for different job classes.
  * </p>
+ * {@link Node}
+ *
  */
 public final class Network {
 

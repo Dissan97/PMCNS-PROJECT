@@ -26,7 +26,7 @@ public class UserUi {
     /**
      * Runs a confirmation-based wizard that:
      * 1) Shows a summary of the current configuration.
-     * 2) Asks the user whether they want to modify it.
+     * 2) Ask the user whether they want to modify it.
      * 3) If yes, opens a loop menu to edit key fields.
      * 4) Ends with an explicit "Start simulation" confirmation.
      * @param cfg the configuration to review and update
@@ -48,24 +48,26 @@ public class UserUi {
             out.info("3) Set Initial Arrivals");
             out.info("4) Edit Service Rate for a Node/Class");
             out.info("5) Edit Seeds");
-            out.info("6) Show Summary");
-            out.info("7) Start Simulation");
-            out.info("8) Abort");
+            out.info("6) Edit warmup completion");
+            out.info("7) Show Summary");
+            out.info("8) Start Simulation");
+            out.info("9) Abort");
 
-            int choice = askInt("Enter choice [1-8]: ", 1, 8);
+            int choice = askInt("Enter choice [1-9]: ", 1, 8);
             switch (choice) {
                 case 1 -> setArrivalRate(cfg);
                 case 2 -> setMaxEvents(cfg);
                 case 3 -> setInitialArrivals(cfg);
                 case 4 -> editServiceRate(cfg);
                 case 5 -> editSeeds(cfg);
-                case 6 -> printSummary(cfg);
-                case 7 -> {
+                case 6 -> editWarmUp(cfg);
+                case 7 -> printSummary(cfg);
+                case 8 -> {
                     if (askYesNo("Confirm start simulation now? [y/N]")) {
                         done = true;
                     }
                 }
-                case 8 -> {
+                case 9 -> {
                     out.warn("Aborted by user.");
                     return false;
                 }
@@ -75,6 +77,8 @@ public class UserUi {
         return true;
     }
 
+
+
     /** Prints a concise configuration summary. */
     private void printSummary(SimulationConfig cfg) {
         out.header("Current Configuration");
@@ -82,6 +86,7 @@ public class UserUi {
         out.info("Max events: " + cfg.getMaxEvents());
         out.info("Initial arrivals: " + cfg.getInitialArrival());
         out.info("Seeds: " + cfg.getSeeds());
+        out.info("Warmup Completions " + cfg.getWarmupCompletions());
         Map<String, Map<String, Double>> sr = cfg.getServiceRates();
         if (sr != null && !sr.isEmpty()) {
             out.info("Service rates (node → class → mean S):");
@@ -139,7 +144,16 @@ public class UserUi {
         sr.computeIfAbsent(node, k -> new HashMap<>()).put(clazz, meanService);
         out.info("Service rate set for (" + node + ", " + clazz + ") = " + meanService);
     }
+    private void editWarmUp(SimulationConfig cfg) {
+        out.info("Current Warmup Completions " + cfg.getWarmupCompletions());
+        int warmup = askAnyInt("insert warmup setup");
+        if (warmup < 0) {
+            out.warn("Invalid warmup setup. it must be >= 0");
+            return;
+        }
+        cfg.setWarmupCompletions(warmup);
 
+    }
     /**
      * Opens a mini-menu to replace or append seeds.
      * Validates integer parsing and shows the resulting list.

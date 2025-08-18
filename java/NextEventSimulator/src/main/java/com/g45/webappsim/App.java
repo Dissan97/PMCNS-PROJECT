@@ -55,7 +55,7 @@ public class App {
      */
     public static void main(String[] args) {
         boolean auto = false;
-        // If argument is provided, use it as config path
+        // If an argument is provided, use it as a config path
         if (args.length > 0) {
             App.cfgPath = args[0];
             if (!Files.exists(Paths.get(App.cfgPath))) {
@@ -76,7 +76,7 @@ public class App {
         // Initialize RNG
         Rngs rngs = new Rngs();
 
-        // Load config from path
+        // Load config from a path
         SimulationConfig config = ConfigParser.getConfig(App.cfgPath);
         if (!auto) {
             askUserModification(config);

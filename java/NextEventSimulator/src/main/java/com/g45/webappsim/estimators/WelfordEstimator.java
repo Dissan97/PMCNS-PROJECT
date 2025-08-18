@@ -20,7 +20,7 @@ public class WelfordEstimator {
     private double mean = 0.0;
 
     /** Sum of squares of differences from the mean (used for variance). */
-    private double M2 = 0.0;
+    private double meanSquare = 0.0;
 
     /** Minimum observed value. */
     private double min = Double.POSITIVE_INFINITY;
@@ -37,7 +37,7 @@ public class WelfordEstimator {
         n += 1;
         double delta = x - mean;
         mean += delta / n;
-        M2 += delta * (x - mean);
+        meanSquare += delta * (x - mean);
         if (x < min) min = x;
         if (x > max) max = x;
     }
@@ -60,7 +60,7 @@ public class WelfordEstimator {
      * @return the sample standard deviation, or 0.0 if fewer than 2 samples
      */
     public double getStddev() {
-        return n > 1 ? Math.sqrt(M2 / (n - 1)) : 0.0;
+        return n > 1 ? Math.sqrt(meanSquare / (n - 1)) : 0.0;
     }
 
     /**
@@ -80,7 +80,7 @@ public class WelfordEstimator {
     public void reset() {
         n = 0L;
         mean = 0.0;
-        M2 = 0.0;
+        meanSquare = 0.0;
         min = Double.POSITIVE_INFINITY;
         max = Double.NEGATIVE_INFINITY;
     }
