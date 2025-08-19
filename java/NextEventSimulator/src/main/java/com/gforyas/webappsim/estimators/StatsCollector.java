@@ -277,9 +277,9 @@ public class StatsCollector {
             sink.lineRecord();
         }
 
-        if (perJobCollector != null) {
+        /*if (perJobCollector != null) {
             perJobCollector.flushToDisk();
-        }
+        }*/
     }
 
     /**
