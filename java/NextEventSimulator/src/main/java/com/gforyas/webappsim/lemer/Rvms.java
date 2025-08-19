@@ -264,7 +264,44 @@ public class Rvms{
 	return (x);
     }
 
-    public double pdfUniform(double a, double b, double x)
+	/**
+	 * Hyper-exponential distribution with 2 phases that preserves the overall mean m.
+	 * One exponential component is chosen with probability p and the other with (1-p).
+	 * The means are scaled as:
+	 *   m1 = m / (2p),  m2 = m / (2(1-p))
+	 * so that E[X] = p*m1 + (1-p)*m2 = m.
+	 *
+	 * @param m  target mean of the hyper-exponential (must be > 0)
+	 * @param p  probability of selecting the first exponential component (0 < p < 1)
+	 * @param u1 random number for component selection
+	 * @param u2 random number for exponential sampling
+	 * @return   a random sample from H2(p, m1, m2) with mean m
+	 */
+	public double idfHyperExponential2SameMean(double m, double p, double u1, double u2) {
+		if (m <= 0.0) {
+			throw new IllegalArgumentException("m must be > 0");
+		}
+		if (!(p > 0.0 && p < 1.0)) {
+			throw new IllegalArgumentException("p must be in (0,1)");
+		}
+		if (!(u1 > 0.0 && u1 < 1.0 && u2 > 0.0 && u2 < 1.0)) {
+			throw new IllegalArgumentException("u1,u2 must be in (0,1)");
+		}
+
+		// Component means adjusted to preserve the global mean m
+		double m1 = m / (2.0 * p);
+		double m2 = m / (2.0 * (1.0 - p));
+
+		// Choose component based on u1 and sample exponential with u2
+		if (u1 < p) {
+			return idfExponential(m1, u2);
+		} else {
+			return idfExponential(m2, u2);
+		}
+	}
+
+
+	public double pdfUniform(double a, double b, double x)
 /* =============================================== 
  * NOTE: use a < x < b 
  * ===============================================

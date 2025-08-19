@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Holds configuration parameters for a single simulation run.
@@ -27,11 +28,11 @@ public class SimulationConfig {
     public void setWarmupCompletions(int warmupCompletions) {
         this.warmupCompletions = warmupCompletions;
     }
-
+    private static final AtomicInteger ARRIVAL_RATE_INDEX = new AtomicInteger(0);
     /**
      * External arrival rate λ (jobs per unit time).
      */
-    private double arrivalRate;
+    private List<Double> arrivalRate = List.of(1.2);
 
     /**
      * Service rates for each node and class.
@@ -87,9 +88,20 @@ public class SimulationConfig {
      * @return the external arrival rate λ
      */
     public double getArrivalRate() {
-        return arrivalRate;
+        int index = ARRIVAL_RATE_INDEX.getAndIncrement();
+        if (index >= arrivalRate.size()) {
+            ARRIVAL_RATE_INDEX.set(0);
+            index = arrivalRate.size() - 1;
+        }
+        return arrivalRate.get(index);
     }
 
+    public int getNumArrivals(){
+        return arrivalRate.size();
+    }
+    public String getArrivalRates() {
+        return this.arrivalRate.toString();
+    }
     /**
      * @return the service rates map (node → class → mean service time)
      */
@@ -116,7 +128,7 @@ public class SimulationConfig {
      *
      * @param arrivalRate the arrival rate in jobs per unit time
      */
-    public void setArrivalRate(double arrivalRate) {
+    public void setArrivalRate(List<Double> arrivalRate) {
         this.arrivalRate = arrivalRate;
     }
 
@@ -215,4 +227,6 @@ public class SimulationConfig {
     public void setMaxBatches(int maxBatches) {
         this.maxBatches = maxBatches;
     }
+
+
 }

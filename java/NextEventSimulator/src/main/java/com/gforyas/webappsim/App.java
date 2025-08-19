@@ -2,6 +2,7 @@ package com.gforyas.webappsim;
 
 import com.gforyas.webappsim.lemer.Rngs;
 import com.gforyas.webappsim.logging.SysLogger;
+import com.gforyas.webappsim.simulator.SimulationFIFO;
 import com.gforyas.webappsim.util.ConfigParser;
 import com.gforyas.webappsim.simulator.Simulation;
 import com.gforyas.webappsim.simulator.SimulationConfig;
@@ -88,8 +89,11 @@ public class App {
                 config;
         LOGGER.info(info);
         for (var seed : config.getSeeds()) {
-            Simulation simulation = new Simulation(config, seed);
-            simulation.run();
+            for (var i = 0; i < config.getNumArrivals(); i++){
+                Simulation simulation = new SimulationFIFO(config, seed);
+                simulation.run();
+                Rngs.resetStreamId();
+            }
         }
     }
 

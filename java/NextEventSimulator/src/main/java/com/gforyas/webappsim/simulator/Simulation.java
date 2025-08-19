@@ -23,7 +23,7 @@ public class Simulation {
     private final Map<String, Map<String, TargetClass>> routingMatrix;
     private final int maxEvents;
     private final NextEventScheduler scheduler = new NextEventScheduler();
-    private final Network network;
+    protected final Network network;
     private final Rngs rng;
     private final ArrivalGenerator arrivalGenerator;
 
@@ -50,12 +50,12 @@ public class Simulation {
         this.maxEvents = cfg.getMaxEvents();
         this.network = new Network(serviceRates);
         this.rng = cfg.getRngs();
-        this.rng.putSeed(seed);
+        this.rng.plantSeeds(seed);
         this.warmupCompletions = cfg.getWarmupCompletions();
 
         generateBootstrap(cfg);
 
-        this.arrivalGenerator = new ArrivalGenerator(scheduler, arrivalRate, "A", 1, rng);
+        this.arrivalGenerator = new HyperExpArrGen(scheduler, arrivalRate, "A", 1, rng, 0.8);
         this.facade = new EstimatorFacade(network, scheduler, routingMatrix, seed,
                 cfg.getBatchLength(), cfg.getMaxBatches());
 
@@ -88,7 +88,7 @@ public class Simulation {
                 SysLogger.getInstance().getLogger().severe(severe);
                 return;
             }
-            double svc = RVMS.idfExponential(meanService, rng.random());
+            double svc = RVMS.idfExponential(meanService, rng.random(node.getStreamId()));
             Job job = new Job(cls, s.getCurrentTime(), svc);
             s.getJobTable().put(job.getId(), job);
             totalExternalArrivals++;
@@ -135,13 +135,14 @@ public class Simulation {
         String nextNode = tc.serverTarget();
         int nextClass = Integer.parseInt(tc.eventClass());
         job.setJobClass(nextClass);
-        Double meanService = network.getNode(nextNode).getServiceMeans().get(nextClass);
+        Node nextTarget = network.getNode(nextNode);
+        Double meanService = nextTarget.getServiceMeans().get(nextClass);
         if (meanService == null) {
             String severe = "Missing service mean for node " + nextNode + " class " + nextClass;
             SysLogger.getInstance().getLogger().severe(severe);
             return;
         }
-        double svc = RVMS.idfExponential(meanService, rng.random());
+        double svc = RVMS.idfExponential(meanService, rng.random(nextTarget.getStreamId()));
         job.setRemainingService(svc);
 
         Event next = new Event(s.getCurrentTime(), Event.Type.ARRIVAL, nextNode, job.getId(), nextClass);

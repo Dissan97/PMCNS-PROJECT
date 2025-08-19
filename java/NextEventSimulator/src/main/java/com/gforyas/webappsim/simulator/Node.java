@@ -1,5 +1,6 @@
 package com.gforyas.webappsim.simulator;
 
+import com.gforyas.webappsim.lemer.Rngs;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
@@ -11,12 +12,12 @@ import java.util.*;
  * based on their remaining service time, using a processor-sharing (PS) discipline.
  * </p>
  */
-public final class Node implements Comparable<Node> {
+public class Node implements Comparable<Node> {
 
     /**
      * Name of the node (e.g., "A", "B", "P").
      */
-    private final String name;
+    protected final String name;
 
     /**
      * Mean service times per job class.
@@ -37,13 +38,14 @@ public final class Node implements Comparable<Node> {
     /**
      * Small epsilon to avoid scheduling zero-length events due to floating-point errors.
      */
-    private static final double EPS = 1e-12;
+    protected static final double EPS = 1e-12;
 
     /**
      * The next departure event scheduled for this node.
      * Used to cancel and reschedule when job list changes.
      */
     private Event nextDeparture;
+    private final int streamId = Rngs.getStreamId();
 
     /**
      * Creates a node with a given name and mean service times per class.
@@ -149,5 +151,9 @@ public final class Node implements Comparable<Node> {
     @Override
     public int compareTo(@NotNull Node o) {
         return Comparator.comparing(Node::getName).compare(this, o);
+    }
+
+    public int getStreamId() {
+        return this.streamId;
     }
 }

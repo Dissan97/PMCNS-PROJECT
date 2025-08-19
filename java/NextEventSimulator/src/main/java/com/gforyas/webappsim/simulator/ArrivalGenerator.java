@@ -21,32 +21,34 @@ public class ArrivalGenerator {
     /**
      * External Poisson arrival rate λ (jobs per unit time).
      */
-    private final double rate;
+    protected final double rate;
 
     /**
      * Name of the target node that will receive the arrivals (e.g., "A").
      */
-    private final String targetNode;
+    protected final String targetNode;
 
     /**
      * Job class identifier for generated arrivals (e.g., 1).
      */
-    private final int jobClass;
+    protected final int jobClass;
 
     /**
      * Lehmer-based random number generator instance for reproducible randomness.
      */
-    private final Rngs rng;
+    protected final Rngs rng;
 
     /**
      * Singleton RVMS utility used for statistical distribution sampling.
      */
-    private static final Rvms RVMS = Rvms.getInstance();
+    protected static final Rvms RVMS = Rvms.getInstance();
 
     /**
      * Flag indicating whether the generator is active and should keep producing arrivals.
      */
-    private volatile boolean active = true;
+    protected volatile boolean active = true;
+
+    protected final int streamId = Rngs.getStreamId();
 
     /**
      * Constructs a new {@code ArrivalGenerator} and schedules the first external arrival event.
@@ -81,10 +83,10 @@ public class ArrivalGenerator {
      * @param ev         The arrival event being processed.
      * @param scheduler  The simulation's {@link NextEventScheduler}.
      */
-    private void onArrival(Event ev, NextEventScheduler scheduler) {
+    protected void onArrival(Event ev, NextEventScheduler scheduler) {
         if (!active || ev instanceof BootstrapEvent) return;
         if (ev.getJobId() == -1 && targetNode.equals(ev.getServer())) {
-            double ia = RVMS.idfExponential(1.0 / rate, rng.random());
+            double ia = RVMS.idfExponential(1.0 / rate, rng.random(this.streamId));
             Event nextExternal = new Event(0.0, Event.Type.ARRIVAL, targetNode, -1, jobClass);
             scheduler.scheduleAt(nextExternal, scheduler.getCurrentTime() + ia);
         }

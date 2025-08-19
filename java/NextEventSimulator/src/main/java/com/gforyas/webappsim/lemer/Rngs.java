@@ -41,11 +41,20 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.Date;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Logger;
 
 
 public class Rngs extends Rng{
 
+  public static final AtomicInteger STREAM_ID = new AtomicInteger(0);
+
+  public static int getStreamId() {
+    return STREAM_ID.getAndIncrement();
+  }
+  public static void resetStreamId() {
+    STREAM_ID.set(0);
+  }
 
   private static final Logger LOGGER = SysLogger.getInstance().getLogger();
 
@@ -97,16 +106,25 @@ public class Rngs extends Rng{
  * between 0.0 and 1.0.
  * ----------------------------------------------------------------
  */
+    return this.random(this.stream);
+  }
+
+  public double random(int localStream) {
+    /* ----------------------------------------------------------------
+     * Random returns a pseudo-random real number uniformly distributed
+     * between 0.0 and 1.0.
+     * ----------------------------------------------------------------
+     */
     long Q = MODULUS / MULTIPLIER;
     long R = MODULUS % MULTIPLIER;
     long t;
 
-    t = MULTIPLIER * (seeds[stream] % Q) - R * (seeds[stream] / Q);
+    t = MULTIPLIER * (seeds[localStream] % Q) - R * (seeds[localStream] / Q);
     if (t > 0)
-      seeds[stream] = t;
+      seeds[localStream] = t;
     else
-      seeds[stream] = t + MODULUS;
-    return ((double) seeds[stream] / MODULUS);
+      seeds[localStream] = t + MODULUS;
+    return ((double) seeds[localStream] / MODULUS);
   }
 
   public void plantSeeds(long x) {

@@ -84,7 +84,7 @@ public class UserUi {
     /** Prints a concise configuration summary. */
     private void printSummary(SimulationConfig cfg) {
         out.header("Current Configuration");
-        out.info("Arrival rate λ: " + cfg.getArrivalRate());
+        out.info("Arrival rate λ: " + cfg.getArrivalRates());
         out.info("Max events: " + cfg.getMaxEvents());
         out.info("Initial arrivals: " + cfg.getInitialArrival());
         out.info("Seeds: " + cfg.getSeeds());
@@ -111,9 +111,19 @@ public class UserUi {
 
     /** Prompts and sets the arrival rate (λ). */
     private void setArrivalRate(SimulationConfig cfg) {
-        double v = askDouble("Enter arrival rate λ (> 0): ", d -> d > 0.0);
-        cfg.setArrivalRate(v);
-        out.info("Arrival rate set to " + v);
+        int howMany = askInt("how many arrivals", 0, Integer.MAX_VALUE);
+        if (howMany > 0) {
+            List<Double> arrivals = new ArrayList<>();
+            for (int i = 0; i < howMany; i++) {
+                double v = askDouble("Enter arrival rate λ (> 0): " + i +
+                        " of " + howMany, d -> d > 0.0);
+                arrivals.add(v);
+            }
+
+            out.info("Arrival rate set to " + arrivals);
+            cfg.setArrivalRate(arrivals);
+        }
+
     }
 
     /** Prompts and sets the max events (integer > 0). */

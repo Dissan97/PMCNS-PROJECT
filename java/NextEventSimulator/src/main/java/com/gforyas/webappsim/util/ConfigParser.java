@@ -100,13 +100,11 @@ public class ConfigParser {
             }
         }
         JSONObject jsonObject = new JSONObject(jsonTokener);
-        double arrivalRate = jsonObject.getDouble(ARRIVAL_RATE.name().toLowerCase());
         JSONObject serviceJson = jsonObject.getJSONObject(SERVICE_RATES.name().toLowerCase());
         JSONObject routingJson = jsonObject.getJSONObject(ROUTING_MATRIX.name().toLowerCase());
 
         SimulationConfig config = new SimulationConfig();
-
-        config.setArrivalRate(arrivalRate);
+        getArrivalRate(jsonObject, config);
         config.setMaxEvents(jsonObject.getInt(MAX_EVENTS.name().toLowerCase()));
 
         Map<String, Map<String, Double>> serviceMap = new HashMap<>();
@@ -137,6 +135,18 @@ public class ConfigParser {
         config.setRoutingMatrix(routingMap);
 
         return config;
+    }
+
+    private static void getArrivalRate(JSONObject jsonObject, SimulationConfig config) {
+        List<Double> arrivalRate = new ArrayList<>();
+        if (jsonObject.has(ARRIVAL_RATE.name().toLowerCase())){
+            JSONArray arrivalArray = jsonObject.getJSONArray(ARRIVAL_RATE.name().toLowerCase());
+            for (int i = 0; i < arrivalArray.length(); i++) {
+                arrivalRate.add(arrivalArray.getDouble(i));
+            }
+            arrivalRate = arrivalRate.stream().sorted(Double::compareTo).toList();
+            config.setArrivalRate(arrivalRate);
+        }
     }
 
     private static void parseBatch(@NotNull JSONObject jsonObject, SimulationConfig config) {

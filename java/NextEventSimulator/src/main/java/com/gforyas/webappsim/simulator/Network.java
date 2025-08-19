@@ -68,4 +68,8 @@ public final class Network {
     public Set<String> allNodes() {
         return nodes.keySet();
     }
+
+    public Map<String, Node> getNodes() {
+        return nodes;
+    }
 }
