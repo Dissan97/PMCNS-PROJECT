@@ -1,6 +1,6 @@
 package com.gforyas.webappsim.simulator;
 
-import com.gforyas.webappsim.estimators.EstimatorFacade;
+import com.gforyas.webappsim.estimators.StatsCollector;
 import com.gforyas.webappsim.lemer.Rngs;
 import com.gforyas.webappsim.lemer.Rvms;
 import com.gforyas.webappsim.logging.SysLogger;
@@ -31,7 +31,7 @@ public class Simulation {
     private int totalCompletedJobs = 0;
     private boolean arrivalsStopped = false;
 
-    private final EstimatorFacade facade;
+    private final StatsCollector statsCollector;
 
     /**
      * Soglia di completamenti (EXIT) per terminare il warm-up.
@@ -55,16 +55,16 @@ public class Simulation {
 
         generateBootstrap(cfg);
 
-        this.arrivalGenerator = new HyperExpArrGen(scheduler, arrivalRate, "A", 1, rng, 0.8);
-        this.facade = new EstimatorFacade(network, scheduler, routingMatrix, seed,
-                cfg.getBatchLength(), cfg.getMaxBatches());
+        this.arrivalGenerator = new ArrivalGenerator(scheduler, arrivalRate, "A", 1, rng);
+        this.statsCollector = new StatsCollector(network, scheduler, routingMatrix,
+                cfg, arrivalRate);
 
         scheduler.subscribe(Event.Type.ARRIVAL, this::onArrival);
         scheduler.subscribe(Event.Type.DEPARTURE, this::onDeparture);
 
         // Se warmup <= 0, misura da subito
         if (warmupCompletions <= 0) {
-            facade.startMeasurement(scheduler);
+            statsCollector.startMeasurement(scheduler);
             measuring = true;
             SysLogger.getInstance().getLogger().info("Warm-up disattivato: misura avviata subito.");
         }
@@ -116,7 +116,7 @@ public class Simulation {
 
             // avvia la misura al raggiungimento della soglia di completamenti
             if (!measuring && totalCompletedJobs >= warmupCompletions) {
-                facade.startMeasurement(s);
+                statsCollector.startMeasurement(s);
                 measuring = true;
 
                 String info = String.format("Warm-up (completamenti) terminato dopo %d EXIT a t=%.3f s (%.3f h)",
@@ -196,7 +196,7 @@ public class Simulation {
                     .warning("Warm-up non attivato: statistiche raccolte dall'inizio della simulazione.");
         }
 
-        facade.calculateStats(scheduler, network);
+        statsCollector.calculateStats(scheduler, network);
 
         long wallEnd = System.nanoTime();
         String finalOutput = String.format("Simulation %d Completed: external=%d, done=%d, took=%f s",

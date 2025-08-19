@@ -114,7 +114,7 @@ public class ResponseTimePerJobCollector {
         return tc != null && "EXIT".equalsIgnoreCase(tc.eventClass());
     }
 
-    // ---- API exposed to EstimatorFacade ----
+    // ---- API exposed to StatsCollector ----
 
     /**
      * <p>Returns the number of collected job samples.</p>

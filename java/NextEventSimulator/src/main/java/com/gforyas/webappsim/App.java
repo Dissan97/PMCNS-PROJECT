@@ -7,6 +7,7 @@ import com.gforyas.webappsim.util.ConfigParser;
 import com.gforyas.webappsim.simulator.Simulation;
 import com.gforyas.webappsim.simulator.SimulationConfig;
 import com.gforyas.webappsim.util.Printer;
+import com.gforyas.webappsim.util.SinkToCsv;
 import com.gforyas.webappsim.util.UserUi;
 
 import java.nio.file.Files;
@@ -89,11 +90,14 @@ public class App {
                 config;
         LOGGER.info(info);
         for (var seed : config.getSeeds()) {
+            SinkToCsv sink = new SinkToCsv(seed);
+            config.setSink(sink);
             for (var i = 0; i < config.getNumArrivals(); i++){
                 Simulation simulation = new SimulationFIFO(config, seed);
                 simulation.run();
                 Rngs.resetStreamId();
             }
+            sink.sink();
         }
     }
 

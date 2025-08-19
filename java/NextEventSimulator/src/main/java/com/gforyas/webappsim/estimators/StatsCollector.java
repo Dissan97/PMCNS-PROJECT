@@ -1,25 +1,18 @@
 package com.gforyas.webappsim.estimators;
 
 import com.gforyas.webappsim.logging.SysLogger;
-import com.gforyas.webappsim.simulator.Network;
-import com.gforyas.webappsim.simulator.NextEventScheduler;
-import com.gforyas.webappsim.simulator.Simulation;
-import com.gforyas.webappsim.simulator.TargetClass;
+import com.gforyas.webappsim.simulator.*;
+import com.gforyas.webappsim.util.SinkToCsv;
 import de.vandermeer.asciitable.AsciiTable;
 import de.vandermeer.asciitable.CWC_LongestLine;
 import de.vandermeer.skb.interfaces.transformers.textformat.TextAlignment;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 
-import static com.gforyas.webappsim.App.getCfgPath;
+import static com.gforyas.webappsim.util.SinkToCsv.OUT_DIR;
 
 /**
  * <p><strong>Purpose.</strong> This facade orchestrates global and per-node estimators
@@ -43,7 +36,7 @@ import static com.gforyas.webappsim.App.getCfgPath;
  * The facade wires up all estimators to the scheduler, and provides utilities to start measurement,
  * finalize time-weighted quantities, log ASCII tables, and write CSV summaries.</p>
  */
-public class EstimatorFacade {
+public class StatsCollector {
 
     public static final String MEAN_RESPONSE_TIME = "mean_response_time";
     public static final String STD_RESPONSE_TIME = "std_response_time";
@@ -62,7 +55,7 @@ public class EstimatorFacade {
             "Node", MEAN_RESPONSE_TIME, STD_RESPONSE_TIME,
             MEAN_POPULATION, STD_POPULATION,
             THROUGHPUT, UTILIZATION);
-    private static final Path OUT_DIR = Path.of(".output_simulation");
+
 
     // Global estimators
     private final ResponseTimeEstimator rt;   // end-to-end (external ARRIVAL -> EXIT)
@@ -80,8 +73,9 @@ public class EstimatorFacade {
     // Collector for per-job times (A, B, P)
     private final ResponseTimePerJobCollector perJobCollector;
 
-    private final long seed;
     private BatchMeansWindow batchMeans=null;
+    private final double arrivalRate;
+    private final SinkToCsv sink;
 
     /**
      * <p>Creates the estimator facade and registers all estimators/collectors.</p>
@@ -89,14 +83,13 @@ public class EstimatorFacade {
      * @param network       the simulated network providing the set of nodes
      * @param scheduler     the event scheduler (clock and event bus)
      * @param routingMatrix the routing matrix used by system-level estimators
-     * @param seed          the random seed for reproducibility
-     * @param batchLength   the size of the batch
-     * @param maxBatches    the max number of batches
+     * @param cfg           the simulation config needed for batch
+     * @param arrivalRate   arrival rate info
      */
-    public EstimatorFacade(Network network,
-                           NextEventScheduler scheduler,
-                           Map<String, Map<String, TargetClass>> routingMatrix,
-                           long seed, int batchLength, int maxBatches) {
+    public StatsCollector(Network network,
+                          NextEventScheduler scheduler,
+                          Map<String, Map<String, TargetClass>> routingMatrix,
+                          SimulationConfig cfg, double arrivalRate) {
 
         // Global estimators
         this.rt = new ResponseTimeEstimator(scheduler, routingMatrix);
@@ -104,9 +97,8 @@ public class EstimatorFacade {
         this.comp = new CompletionsEstimator(scheduler, routingMatrix);
         this.ot = new ObservationTimeEstimator(scheduler);
         this.busy = new BusyTimeEstimator(scheduler, routingMatrix);
-
-        this.seed = seed;
-
+        this.arrivalRate = arrivalRate;
+        this.sink = cfg.getSink();
         // Per-node estimators
         for (String n : network.allNodes()) {
             // Per-node response time (exclude A/B/P here; they use the per-job variant below)
@@ -126,7 +118,9 @@ public class EstimatorFacade {
         rtNode.put("A", rtA);
         rtNode.put("B", rtB);
         rtNode.put("P", rtP);
-        if(batchLength!=-1 && maxBatches != -1){
+        int batchLength = cfg.getBatchLength();
+        int maxBatches = cfg.getMaxBatches();
+        if(batchLength !=-1 && maxBatches != -1){
                     this.batchMeans = new BatchMeansWindow(network, scheduler, routingMatrix, batchLength, maxBatches);
 
         }
@@ -254,9 +248,35 @@ public class EstimatorFacade {
         info = "Per-node metrics (measured)\n" + makeTable(HEADERS_NODE, perNodeRows);
         SysLogger.getInstance().getLogger().info(info);
         printBatchesSummary(scheduler);
-        // Save CSV + flush per-job samples
-        saveToCsv(network, meanRtOverall, stdRtOverall, meanPop, stdPop,
-                throughput, utilization, stdRtCov, stdPopCov, elapsed);
+
+        // adding entry to sink
+        sink.appendRecord(SinkToCsv.CsvHeader.SCOPE, "OVERALL");
+        sink.appendRecord(SinkToCsv.CsvHeader.ARRIVAL_RATE, fmt(arrivalRate));
+        sink.appendRecord(SinkToCsv.CsvHeader.MEAN_RESPONSE_TIME, fmt(meanRtOverall));
+        sink.appendRecord(SinkToCsv.CsvHeader.STD_RESPONSE_TIME, fmt(stdRtOverall));
+        sink.appendRecord(SinkToCsv.CsvHeader.MEAN_POPULATION, fmt(meanPop));
+        sink.appendRecord(SinkToCsv.CsvHeader.STD_POPULATION, fmt(stdPop));
+        sink.appendRecord(SinkToCsv.CsvHeader.THROUGHPUT, fmt(throughput));
+        sink.appendRecord(SinkToCsv.CsvHeader.UTILIZATION, fmt(utilization));
+        sink.appendRecord(SinkToCsv.CsvHeader.STD_RESPONSE_TIME_COV, fmt(stdRtCov));
+        sink.appendRecord(SinkToCsv.CsvHeader.STD_POPULATION_COV, fmt(stdPopCov));
+        sink.lineRecord();
+        // adding entry to sink
+        for (String n : network.allNodes().stream().sorted().toList()) {
+            PerNodeResult result = getPerNodeResult(n, elapsed);
+            sink.appendRecord(SinkToCsv.CsvHeader.SCOPE, "NODE_" + n);
+            sink.appendRecord(SinkToCsv.CsvHeader.ARRIVAL_RATE, fmt(arrivalRate));
+            sink.appendRecord(SinkToCsv.CsvHeader.MEAN_RESPONSE_TIME, fmt(result.sampleWait()));
+            sink.appendRecord(SinkToCsv.CsvHeader.STD_RESPONSE_TIME, fmt(result.stdWn()));
+            sink.appendRecord(SinkToCsv.CsvHeader.MEAN_POPULATION, fmt(result.samplePopulation()));
+            sink.appendRecord(SinkToCsv.CsvHeader.STD_POPULATION, fmt(result.stdNn()));
+            sink.appendRecord(SinkToCsv.CsvHeader.THROUGHPUT, fmt(result.sampleMean()));
+            sink.appendRecord(SinkToCsv.CsvHeader.UTILIZATION, fmt(result.util()));
+            sink.appendRecord(SinkToCsv.CsvHeader.STD_RESPONSE_TIME_COV, "-");
+            sink.appendRecord(SinkToCsv.CsvHeader.STD_POPULATION_COV, "-");
+            sink.lineRecord();
+        }
+
         if (perJobCollector != null) {
             perJobCollector.flushToDisk();
         }
@@ -336,85 +356,13 @@ public class EstimatorFacade {
             SysLogger.getInstance().getLogger().info(tableSummary);
 
             BatchMeansSummary s = new BatchMeansSummary();
-            
+
             batchMeans.getResults().forEach(b -> s.add(b.meanRt));
             BatchMeansSummary.Stats st = s.summarize();
             String summary = String.format(Locale.ROOT,
                     "BatchMeans RT: batches=%d, mean-of-means=%.6f, sample-std=%.6f, std-error=%.6f",
                     st.batches, st.meanOfMeans, st.sampleStd, st.stdError);
             SysLogger.getInstance().getLogger().info(summary);
-        }
-    }
-    /**
-     * <p>Writes the global and per-node metrics to a CSV file under
-     * <code>.output_simulation</code>. The filename embeds the configuration stem,
-     * the run counter, the seed, and a timestamp.</p>
-     *
-     * @param network       the network used to iterate nodes
-     * @param meanRtOverall the visit-weighted mean response time
-     * @param stdRtOverall  the global response-time standard deviation (Welford)
-     * @param meanPop       the global mean population (time-weighted)
-     * @param stdPop        the global population standard deviation (time-weighted)
-     * @param throughput    the global throughput (completions per unit time)
-     * @param utilization   the global utilization (busy/elapsed)
-     * @param stdRtCov      the covariance-based response-time standard deviation
-     * @param stdPopCov     the covariance-based population standard deviation
-     * @param elapsed       the observed elapsed time
-     */
-    private void saveToCsv(@NotNull Network network,
-                           double meanRtOverall, double stdRtOverall,
-                           double meanPop, double stdPop,
-                           double throughput, double utilization,
-                           double stdRtCov, double stdPopCov,
-                           double elapsed) {
-        try {
-            String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
-            String cfgFile = getCfgPath().replace(".json", "");
-            int dot = cfgFile.lastIndexOf('.');
-            String cfgStem = (dot > 0 ? cfgFile.substring(0, dot) : cfgFile);
-
-            String name = String.format("results_%s_run%03d_seed%s_%s.csv",
-                    cfgStem, Simulation.SIMULATION_COUNTER.get(), seed, ts);
-            Path outPath = OUT_DIR.resolve(name);
-
-            Files.createDirectories(OUT_DIR);
-
-            StringBuilder csv = new StringBuilder();
-            csv.append(
-                    "scope,mean_response_time,std_response_time,mean_population,std_population,throughput,utilization,std_response_time_cov,std_population_cov\n");
-
-            // OVERALL
-            csv.append(String.join(",",
-                    "OVERALL",
-                    fmt(meanRtOverall),
-                    fmt(stdRtOverall),
-                    fmt(meanPop),
-                    fmt(stdPop),
-                    fmt(throughput),
-                    fmt(utilization),
-                    (Double.isNaN(stdRtCov) ? "-" : fmt(stdRtCov)),
-                    (Double.isNaN(stdPopCov) ? "-" : fmt(stdPopCov)))).append('\n');
-
-            // Per-node
-            for (String n : network.allNodes().stream().sorted().toList()) {
-                PerNodeResult result = getPerNodeResult(n, elapsed);
-
-                csv.append(String.join(",",
-                        "NODE_" + n,
-                        fmt(result.sampleWait()), fmt(result.stdWn()),
-                        fmt(result.samplePopulation()), fmt(result.stdNn()),
-                        fmt(result.sampleMean()), fmt(result.util()),
-                        "-", "-" // no covariance metrics per node
-                )).append('\n');
-            }
-
-            Files.writeString(outPath, csv.toString(),
-                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-
-            String info = "✓ CSV salvato → " + name; // log message kept as-is (not a comment)
-            SysLogger.getInstance().getLogger().info(info);
-        } catch (IOException e) {
-            SysLogger.getInstance().getLogger().warning("CSV save failed: " + e.getMessage());
         }
     }
 

@@ -1,6 +1,7 @@
 package com.gforyas.webappsim.simulator;
 
 import com.gforyas.webappsim.lemer.Rngs;
+import com.gforyas.webappsim.util.SinkToCsv;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -19,6 +20,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class SimulationConfig {
 
     private int warmupCompletions = 10_000; // default sensato
+    private SinkToCsv sink;
 
 
     public int getWarmupCompletions() {
@@ -228,5 +230,11 @@ public class SimulationConfig {
         this.maxBatches = maxBatches;
     }
 
+    public void setSink(SinkToCsv sink) {
+        this.sink = sink;
+    }
 
+    public SinkToCsv getSink() {
+        return this.sink;
+    }
 }

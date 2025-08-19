@@ -27,7 +27,7 @@ import java.util.*;
  * </ul>
  *
  * <p><strong>Why a separate set of estimators?</strong> We do not mutate the global
- * estimators used by {@link EstimatorFacade}. Using dedicated batch estimators avoids
+ * estimators used by {@link StatsCollector}. Using dedicated batch estimators avoids
  * interference and does not require changes to existing estimator classes.</p>
  */
 public class BatchMeansWindow {
@@ -49,22 +49,26 @@ public class BatchMeansWindow {
         /** System completions within this batch (EXIT events). */
         public final int completions;
 
-        Result(int index, double tStart, double tEnd,
-               double meanRt, double stdRt, double meanN, double stdN,
+        Result(int index, TimeManage timeManage,
+               MeanStdMetric rt, MeanStdMetric pop,
                double throughput, double utilization, int completions) {
             this.index = index;
-            this.tStart = tStart;
-            this.tEnd = tEnd;
-            this.meanRt = meanRt;
-            this.stdRt = stdRt;
-            this.meanN = meanN;
-            this.stdN = stdN;
+            this.tStart = timeManage.start;
+            this.tEnd = timeManage.end;
+            this.meanRt = rt.mean;
+            this.stdRt = rt.std;
+            this.meanN = pop.mean;
+            this.stdN = pop.std;
             this.throughput = throughput;
             this.utilization = utilization;
             this.completions = completions;
         }
     }
 
+    private record MeanStdMetric(double mean, double std) {
+    }
+
+    private record TimeManage(double start, double end) {}
 
     private final double batchLength;
     private final int maxBatches;
@@ -136,6 +140,10 @@ public class BatchMeansWindow {
         this.tNext  = now + batchLength;
         this.batchIndex = 0;
 
+        extractCollection(now);
+    }
+
+    private void extractCollection(double now) {
         rt.startCollecting();
         pop.startCollecting(now);
         comp.startCollecting();
@@ -172,8 +180,8 @@ public class BatchMeansWindow {
             double stdN   = pop.getStd();
             double util   = busy.getBusyTime() / len;
 
-            results.add(new Result(++batchIndex, tStart, currentTime,
-                    meanRt, stdRt, meanN, stdN, thr, util, comps));
+            results.add(new Result(++batchIndex, new TimeManage(tStart, currentTime),
+                    new MeanStdMetric(meanRt, stdRt), new MeanStdMetric(meanN, stdN), thr, util, comps));
         }
 
         // Stop if max batches reached
@@ -186,14 +194,7 @@ public class BatchMeansWindow {
         tStart = currentTime;
         tNext  = currentTime + batchLength;
 
-        rt.startCollecting();
-        pop.startCollecting(currentTime);
-        comp.startCollecting();
-        busy.startCollecting(currentTime);
-        for (var pn : popNode.values()) pn.startCollecting(currentTime);
-        for (var cn : compNode.values()) cn.startCollecting();
-        for (var rn : rtNode.values()) rn.startCollecting();
-        for (var bn : busyNode.values()) bn.startCollecting(currentTime);
+        extractCollection(currentTime);
     }
 
     /**
