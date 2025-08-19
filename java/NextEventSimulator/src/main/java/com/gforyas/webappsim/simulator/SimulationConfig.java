@@ -78,15 +78,6 @@ public class SimulationConfig {
     private int maxBatches = -1;
 
     /**
-     * Creates a default empty configuration.
-     *
-     * @return a default {@code SimulationConfig} (currently uninitialized)
-     */
-    public static SimulationConfig createDefault() {
-        return null;
-    }
-
-    /**
      * @return the external arrival rate λ
      */
     public double getArrivalRate() {
@@ -205,7 +196,7 @@ public class SimulationConfig {
         return "SimulationConfig={" +
                 "\narrivalRate=" + arrivalRate +
                 "\n, serviceRates=" + serviceRates +
-                "\n, routingMatrix=" + sb.toString() +
+                "\n, routingMatrix=" + sb +
                 "\n, maxEvents=" + maxEvents +
                 "\n, initialArrival=" + initialArrival +
                 "\n, seeds=" + seeds +
