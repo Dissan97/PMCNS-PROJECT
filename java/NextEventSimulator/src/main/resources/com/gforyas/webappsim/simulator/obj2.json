@@ -19,5 +19,6 @@
     }
     },
   "max_events": 10000000,
+  "initial_arrival": 0,
   "warmup_completions": 10000
 }

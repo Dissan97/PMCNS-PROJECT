@@ -71,8 +71,8 @@ public class SimulationConfig {
     private List<Integer> seeds = new ArrayList<>(Arrays.asList(314159265, 271828183, 141421357,
             1732584193, 123456789));
 
-    private int batchLength = 128;
-    private int maxBatches = 8;
+    private int batchLength = -1;
+    private int maxBatches = -1;
 
     /**
      * Creates a default empty configuration.

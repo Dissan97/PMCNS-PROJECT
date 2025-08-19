@@ -81,7 +81,7 @@ public class EstimatorFacade {
     private final ResponseTimePerJobCollector perJobCollector;
 
     private final long seed;
-    private BatchMeansWindow batchMeans;
+    private BatchMeansWindow batchMeans=null;
 
     /**
      * <p>Creates the estimator facade and registers all estimators/collectors.</p>
@@ -126,7 +126,10 @@ public class EstimatorFacade {
         rtNode.put("A", rtA);
         rtNode.put("B", rtB);
         rtNode.put("P", rtP);
-        this.batchMeans = new BatchMeansWindow(network, scheduler, routingMatrix, batchLength, maxBatches);
+        if(batchLength!=-1 && maxBatches != -1){
+                    this.batchMeans = new BatchMeansWindow(network, scheduler, routingMatrix, batchLength, maxBatches);
+
+        }
         // Per-job collector (CSV + in-memory samples for var/cov)
         Path perJobCsv = OUT_DIR.resolve("per_job_times.csv");
         perJobCollector = new ResponseTimePerJobCollector(
@@ -333,6 +336,7 @@ public class EstimatorFacade {
             SysLogger.getInstance().getLogger().info(tableSummary);
 
             BatchMeansSummary s = new BatchMeansSummary();
+            
             batchMeans.getResults().forEach(b -> s.add(b.meanRt));
             BatchMeansSummary.Stats st = s.summarize();
             String summary = String.format(Locale.ROOT,
