@@ -74,6 +74,13 @@ public class SimulationConfig {
     private List<Integer> seeds = new ArrayList<>(Arrays.asList(314159265, 271828183, 141421357,
             1732584193, 123456789));
 
+
+    // in SimulationConfig.java
+    private Map<String, Map<String, java.util.List<TargetClass>>> routingMatrixLB;
+    // inside SimulationConfig.java
+    private SimulationType simulationType = SimulationType.NORMAL;
+    private Balancing balancing = Balancing.RR;   // used only if simulationType == LOAD_BALANCE
+
     private int batchLength = -1;
     private int maxBatches = -1;
 
@@ -187,12 +194,36 @@ public class SimulationConfig {
     /**
      * @return a string representation of the configuration for debugging
      */
+
+    public Map<String, Map<String, java.util.List<TargetClass>>> getRoutingMatrixLB() {
+        return routingMatrixLB;
+    }
+
+    public void setRoutingMatrixLB(Map<String, Map<String, java.util.List<TargetClass>>> routingMatrixLB) {
+        this.routingMatrixLB = routingMatrixLB;
+    }
+
+    public SimulationType getSimulationType() { return simulationType; }
+    public void setSimulationType(SimulationType simulationType) { this.simulationType = simulationType; }
+    public Balancing getBalancing() { return balancing; }
+    public void setBalancing(Balancing balancing) { this.balancing = balancing; }
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("{\n\t");
-        routingMatrix.keySet().stream().sorted().forEach(
-                key -> sb.append(key).append("=").append(routingMatrix.get(key)).append("\n\t"));
+        if (simulationType.equals(SimulationType.LOAD_BALANCE)) {
+            routingMatrixLB.keySet().stream().sorted().forEach(
+                key -> sb.append(key).append("=").append(routingMatrixLB.get(key)).append("\n\t"));
+
+        } else {
+            routingMatrix.keySet().stream().sorted().forEach(
+                    key -> sb.append(key).append("=").append(routingMatrix.get(key)).append("\n\t"));
+        }
         sb.append('}');
+
+        if (batchLength > 0 && maxBatches > 0) {
+            sb.append("\n\t").append("Batch Length: ").append(batchLength);
+            sb.append("\n\t").append("Max Batches: ").append(maxBatches);
+        }
         return "SimulationConfig={" +
                 "\narrivalRate=" + arrivalRate +
                 "\n, serviceRates=" + serviceRates +
@@ -201,6 +232,8 @@ public class SimulationConfig {
                 "\n, initialArrival=" + initialArrival +
                 "\n, seeds=" + seeds +
                 "\n, warmupCompletions=" + warmupCompletions +
+                "\n, simulationType=" + simulationType +
+                (simulationType.equals(SimulationType.LOAD_BALANCE) ? "\n, balancing=" + balancing : "") +
                 "\n}";
     }
 

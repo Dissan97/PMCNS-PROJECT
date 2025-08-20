@@ -1,10 +1,13 @@
 package com.gforyas.webappsim.util;
 
 import com.gforyas.webappsim.logging.SysLogger;
+import com.gforyas.webappsim.simulator.Balancing;
 import com.gforyas.webappsim.simulator.SimulationConfig;
+import com.gforyas.webappsim.simulator.SimulationType;
 import com.gforyas.webappsim.simulator.TargetClass;
 import org.jetbrains.annotations.NotNull;
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 import org.json.JSONTokener;
 
@@ -35,12 +38,14 @@ public class ConfigParser {
 
 
     private static final List<String> DEFAULT_CONFIGS = findConfigs();
+    public static final String CLASS_EQUAL = " class=";
 
     /**
      * Returns the default config found in the resources
+     *
      * @return List of configs
      */
-    public static List<String> getDefaultConfigs(){
+    public static List<String> getDefaultConfigs() {
         return DEFAULT_CONFIGS;
     }
 
@@ -68,7 +73,7 @@ public class ConfigParser {
         return Collections.emptyList();
     }
 
-        /**
+    /**
      * Private constructor to prevent instantiation.
      *
      * @throws UnsupportedOperationException always thrown when called
@@ -109,6 +114,7 @@ public class ConfigParser {
 
         Map<String, Map<String, Double>> serviceMap = new HashMap<>();
         Map<String, Map<String, TargetClass>> routingMap = new HashMap<>();
+        Map<String, Map<String, java.util.List<TargetClass>>> routingMapLB = new HashMap<>();
 
         if (jsonObject.has(INITIAL_ARRIVAL.name().toLowerCase())) {
             config.setInitialArrival(jsonObject.getInt(INITIAL_ARRIVAL.name().toLowerCase()));
@@ -128,18 +134,24 @@ public class ConfigParser {
             config.setWarmupCompletions(jsonObject.getInt(WARMUP_COMPLETIONS.name().toLowerCase()));
         }
 
+
         parseService(serviceJson, serviceMap);
-        parseMatrix(routingJson, routingMap);
-        parseBatch(jsonObject, config);
+        parseMatrix(routingJson, routingMap);          // legacy single-target
+        // NEW: single entry point, fills BOTH maps (legacy + LB-aware)
+        parseMatrix(routingJson, routingMap, routingMapLB);
+        parseBatch(jsonObject, config);// new multi-target
         config.setServiceRates(serviceMap);
         config.setRoutingMatrix(routingMap);
-
+        config.setRoutingMatrixLB(routingMapLB);
+        checkSimulationType(jsonObject, config);
         return config;
     }
 
+
+
     private static void getArrivalRate(JSONObject jsonObject, SimulationConfig config) {
         List<Double> arrivalRate = new ArrayList<>();
-        if (jsonObject.has(ARRIVAL_RATE.name().toLowerCase())){
+        if (jsonObject.has(ARRIVAL_RATE.name().toLowerCase())) {
             JSONArray arrivalArray = jsonObject.getJSONArray(ARRIVAL_RATE.name().toLowerCase());
             for (int i = 0; i < arrivalArray.length(); i++) {
                 arrivalRate.add(arrivalArray.getDouble(i));
@@ -188,11 +200,54 @@ public class ConfigParser {
      *                    definition.
      */
     private static void parseMatrix(@NotNull JSONObject routingJson,
-            Map<String, Map<String, TargetClass>> routingMap) {
+                                    Map<String, Map<String, TargetClass>> routingMap) {
         for (String node : routingJson.keySet()) {
             routingMap.putIfAbsent(node, new HashMap<>());
             JSONObject perClass = routingJson.getJSONObject(node);
 
+            checkForRoutingMatrix(routingMap, node, perClass);
+        }
+
+    }
+    /**
+     * Parse routing_matrix supporting String, JSONObject and JSONArray rules,
+     * and fill BOTH maps:
+     * - legacyMap: single TargetClass per (node,class) = first candidate
+     * - lbMap: full list of candidates per (node,class)
+     */
+    private static void parseMatrix(
+            @NotNull JSONObject routingJson,
+            Map<String, Map<String, TargetClass>> legacyMap,
+            Map<String, Map<String, java.util.List<TargetClass>>> lbMap
+    ) {
+        for (String node : routingJson.keySet()) {
+            JSONObject perClass = routingJson.getJSONObject(node);
+
+            legacyMap.putIfAbsent(node, new HashMap<>());
+            lbMap.putIfAbsent(node, new HashMap<>());
+
+            for (String clsKey : perClass.keySet()) {
+                Object rule = perClass.get(clsKey);
+
+                // Normalize any kind of rule to a list of TargetClass
+                java.util.List<TargetClass> candidates = parseRuleToList(node, clsKey, rule);
+
+                // Store LB-aware list (immutable copy)
+                lbMap.get(node).put(clsKey, java.util.List.copyOf(candidates));
+
+                // Derive legacy single-target by taking the first candidate, if present
+                if (!candidates.isEmpty()) {
+                    legacyMap.get(node).put(clsKey, candidates.getFirst());
+                } else {
+                    String warning = "routing_matrix: empty candidate list for node=" + node + CLASS_EQUAL + clsKey;
+                    SysLogger.getInstance().getLogger().warning(warning);
+                }
+            }
+        }
+    }
+
+    private static void checkForRoutingMatrix(Map<String, Map<String, TargetClass>> routingMap, String node, JSONObject perClass) {
+        try {
             for (String clsKey : perClass.keySet()) {
                 Object rule = perClass.get(clsKey);
 
@@ -216,31 +271,132 @@ public class ConfigParser {
                 TargetClass tc = new TargetClass(target, clazz);
                 routingMap.get(node).put(clsKey, tc);
             }
+        } catch (JSONException ignored) {
+            // ignored when there is load balance
         }
-
     }
 
+    /**
+     * Normalize a routing rule (String | JSONObject | JSONArray) into a list of TargetClass.
+     * - String: "EXIT" (target defaults to current node but ignored on EXIT)
+     * - JSONObject: {"target":"B","class":"1"}
+     * - JSONArray: mixed list of String/JSONObject, in order
+     */
+    private static java.util.List<TargetClass> parseRuleToList(
+            String node, String clsKey, Object rule
+    ) {
+        java.util.ArrayList<TargetClass> out = new java.util.ArrayList<>();
+
+        if (rule instanceof String s) {
+            // e.g., "EXIT"
+            out.add(new TargetClass(node, s));
+            return out;
+        }
+
+        if (rule instanceof JSONObject obj) {
+            String target = obj.getString(JSONKeys.TARGET.name().toLowerCase());
+            String clazz  = obj.get(JSONKeys.CLASS.name().toLowerCase()).toString();
+            out.add(new TargetClass(target, clazz));
+            return out;
+        }
+
+        if (rule instanceof JSONArray arr) {
+            if (arr.isEmpty()) {
+                String warning = "routing_matrix: empty array for node=" + node + CLASS_EQUAL + clsKey;
+                SysLogger.getInstance().getLogger().warning(warning);
+
+                return out;
+            }
+            for (int i = 0; i < arr.length(); i++) {
+                Object it = arr.get(i);
+                switch (it) {
+                    case String s2 -> out.add(new TargetClass(node, s2));
+                    case JSONObject o -> {
+                        String target = o.getString(JSONKeys.TARGET.name().toLowerCase());
+                        String clazz = o.get(JSONKeys.CLASS.name().toLowerCase()).toString();
+                        out.add(new TargetClass(target, clazz));
+                    }
+                    default -> {
+                        String warning = "routing_matrix: unsupported element type in array for node=" + node +
+                                CLASS_EQUAL + clsKey + " → " + it;
+                        SysLogger.getInstance().getLogger().warning(warning);
+                    }
+                }
+            }
+            return out;
+        }
+        String severe = "routing_matrix: unsupported rule type for node=" + node + CLASS_EQUAL + clsKey +
+                " → " + rule;
+        SysLogger.getInstance().getLogger().severe(severe);
+
+        return out;
+    }
+
+
+    private static void checkSimulationType(JSONObject jsonObject, SimulationConfig config) {
+        String stKey = JSONKeys.SIMULATION_TYPE.name().toLowerCase();
+        if (jsonObject.has(stKey)) {
+            String st = jsonObject.getString(stKey);
+            try {
+                config.setSimulationType(SimulationType.valueOf(st.trim().toUpperCase()));
+            } catch (IllegalArgumentException ex) {
+                SysLogger.getInstance().getLogger()
+                        .warning("Unknown simulation_type='" + st + "', defaulting to NORMAL");
+                config.setSimulationType(SimulationType.NORMAL);
+            }
+        } else {
+            config.setSimulationType(SimulationType.NORMAL);
+        }
+
+        // --- Load balance policy of LOAD_BALANCE selected ---
+        if (config.getSimulationType() == SimulationType.LOAD_BALANCE) {
+            String lbKey = JSONKeys.LOAD_BALANCE.name().toLowerCase();
+            if (jsonObject.has(lbKey)) {
+                JSONObject lb = jsonObject.getJSONObject(lbKey);
+                String polKey = JSONKeys.BALANCING.name().toLowerCase();
+                String pol = lb.optString(polKey, "RR");
+                config.setBalancing(Balancing.parse(pol));
+            } else {
+                config.setBalancing(Balancing.RR);
+            }
+        }
+    }
     /**
      * Enumeration of JSON key names used in configuration files.
      */
     public enum JSONKeys {
-        /** JSON key for the global arrival rate of jobs. */
+        /**
+         * JSON key for the global arrival rate of jobs.
+         */
         ARRIVAL_RATE,
-        /** JSON key for the service rates of each server and job class. */
+        /**
+         * JSON key for the service rates of each server and job class.
+         */
         SERVICE_RATES,
-        /** JSON key for the routing matrix between servers and job classes. */
+        /**
+         * JSON key for the routing matrix between servers and job classes.
+         */
         ROUTING_MATRIX,
-        /** JSON key for the maximum number of events to simulate. */
+        /**
+         * JSON key for the maximum number of events to simulate.
+         */
         MAX_EVENTS,
-        /** JSON key for the target node in routing rules. */
+        /**
+         * JSON key for the target node in routing rules.
+         */
         TARGET,
-        /** JSON key for the job class in routing rules. */
+        /**
+         * JSON key for the job class in routing rules.
+         */
         CLASS,
         INITIAL_ARRIVAL,
         SEEDS,
         WARMUP_COMPLETIONS,
         BATCH_LENGTH,
-        MAX_BATCHES
+        MAX_BATCHES,
+        SIMULATION_TYPE,
+        LOAD_BALANCE,
+        BALANCING
     }
 
 }

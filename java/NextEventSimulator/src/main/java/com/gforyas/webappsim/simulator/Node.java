@@ -156,4 +156,24 @@ public class Node implements Comparable<Node> {
     public int getStreamId() {
         return this.streamId;
     }
+
+    // inside Node
+    /**
+     * @return current number of jobs in service on this node.
+     */
+    public int inService() {
+        return jobs.size();
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) return false;
+        Node node = (Node) o;
+        return Objects.equals(name, node.name);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(name);
+    }
 }

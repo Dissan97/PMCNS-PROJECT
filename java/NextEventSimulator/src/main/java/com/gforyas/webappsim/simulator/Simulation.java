@@ -20,28 +20,28 @@ public class Simulation {
     public static final AtomicInteger SIMULATION_COUNTER = new AtomicInteger(0);
     private static final Rvms RVMS = Rvms.getInstance();
 
-    private final Map<String, Map<String, TargetClass>> routingMatrix;
-    private final int maxEvents;
-    private final NextEventScheduler scheduler = new NextEventScheduler();
+    protected  final Map<String, Map<String, TargetClass>> routingMatrix;
+    protected final int maxEvents;
+    protected final NextEventScheduler scheduler = new NextEventScheduler();
     protected final Network network;
-    private final Rngs rng;
+    protected final Rngs rng;
     private final ArrivalGenerator arrivalGenerator;
 
-    private int totalExternalArrivals = 0;
-    private int totalCompletedJobs = 0;
-    private boolean arrivalsStopped = false;
+    protected int totalExternalArrivals = 0;
+    protected int totalCompletedJobs = 0;
+    protected boolean arrivalsStopped = false;
 
-    private final StatsCollector statsCollector;
+    protected final StatsCollector statsCollector;
 
     /**
      * Soglia di completamenti (EXIT) per terminare il warm-up.
      */
-    private final int warmupCompletions;
+    protected final int warmupCompletions;
 
     /**
      * True quando abbiamo iniziato a misurare (post warm-up).
      */
-    private boolean measuring = false;
+    protected boolean measuring = false;
 
     public Simulation(SimulationConfig cfg, long seed) {
         double arrivalRate = cfg.getArrivalRate();
@@ -68,16 +68,17 @@ public class Simulation {
             measuring = true;
             SysLogger.getInstance().getLogger().info("Warm-up disattivato: misura avviata subito.");
         }
+
     }
 
-    private void generateBootstrap(SimulationConfig config) {
+    protected  void generateBootstrap(SimulationConfig config) {
         for (int i = 0; i < config.getInitialArrival(); i++) {
             Event bootstrapEvent = new BootstrapEvent(0.0, Event.Type.ARRIVAL, "A", -1, 1);
             scheduler.scheduleAt(bootstrapEvent, 0.0);
         }
     }
 
-    private void onArrival(Event e, NextEventScheduler s) {
+    protected  void onArrival(Event e, NextEventScheduler s) {
         Node node = network.getNode(e.getServer());
         if (e.getJobId() == -1) {
             // External arrival
@@ -101,7 +102,7 @@ public class Simulation {
         }
     }
 
-    private void onDeparture(Event e, NextEventScheduler s) {
+    protected  void onDeparture(Event e, NextEventScheduler s) {
         Node node = network.getNode(e.getServer());
         Job job = s.getJobTable().get(e.getJobId());
         if (job == null) return;
@@ -132,6 +133,10 @@ public class Simulation {
             return;
         }
 
+        scheduleTheTarget(s, job, tc, RVMS);
+    }
+
+    protected void scheduleTheTarget(NextEventScheduler s, Job job, TargetClass tc, Rvms rvms) {
         String nextNode = tc.serverTarget();
         int nextClass = Integer.parseInt(tc.eventClass());
         job.setJobClass(nextClass);
@@ -142,14 +147,14 @@ public class Simulation {
             SysLogger.getInstance().getLogger().severe(severe);
             return;
         }
-        double svc = RVMS.idfExponential(meanService, rng.random(nextTarget.getStreamId()));
+        double svc = rvms.idfExponential(meanService, rng.random(nextTarget.getStreamId()));
         job.setRemainingService(svc);
 
         Event next = new Event(s.getCurrentTime(), Event.Type.ARRIVAL, nextNode, job.getId(), nextClass);
         s.schedule(next);
     }
 
-    private TargetClass lookupRouting(String node, int cls) {
+    protected  TargetClass lookupRouting(String node, int cls) {
         Map<String, TargetClass> m = routingMatrix.get(node);
         if (m == null) return null;
         return m.get(Integer.toString(cls));
@@ -205,7 +210,7 @@ public class Simulation {
         SysLogger.getInstance().getLogger().info(finalOutput);
     }
 
-    private int showRender(int stepNow, int lastStep, long wallStart, int cnt, long target, int pct) {
+    protected  int showRender(int stepNow, int lastStep, long wallStart, int cnt, long target, int pct) {
         if (stepNow != lastStep) {
             lastStep = stepNow;
 
@@ -218,5 +223,23 @@ public class Simulation {
             );
         }
         return lastStep;
+    }
+
+    @Override
+    public String toString() {
+        return "Simulation{" +
+                "routingMatrix=" + routingMatrix +
+                ", maxEvents=" + maxEvents +
+                ", scheduler=" + scheduler +
+                ", network=" + network +
+                ", rng=" + rng +
+                ", arrivalGenerator=" + arrivalGenerator +
+                ", totalExternalArrivals=" + totalExternalArrivals +
+                ", totalCompletedJobs=" + totalCompletedJobs +
+                ", arrivalsStopped=" + arrivalsStopped +
+                ", statsCollector=" + statsCollector +
+                ", warmupCompletions=" + warmupCompletions +
+                ", measuring=" + measuring +
+                '}';
     }
 }

@@ -16,5 +16,21 @@ public class SimulationFIFO extends Simulation {
         oldNodes.putAll(nodes);
     }
 
-
+    @Override
+    public String toString() {
+        return "SimulationFIFO{" +
+                "nodes=" + nodes +
+                ", routingMatrix=" + routingMatrix +
+                ", maxEvents=" + maxEvents +
+                ", scheduler=" + scheduler +
+                ", network=" + network +
+                ", rng=" + rng +
+                ", totalExternalArrivals=" + totalExternalArrivals +
+                ", totalCompletedJobs=" + totalCompletedJobs +
+                ", arrivalsStopped=" + arrivalsStopped +
+                ", statsCollector=" + statsCollector +
+                ", warmupCompletions=" + warmupCompletions +
+                ", measuring=" + measuring +
+                '}';
+    }
 }

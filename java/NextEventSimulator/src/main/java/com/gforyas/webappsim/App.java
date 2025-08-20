@@ -2,7 +2,7 @@ package com.gforyas.webappsim;
 
 import com.gforyas.webappsim.lemer.Rngs;
 import com.gforyas.webappsim.logging.SysLogger;
-import com.gforyas.webappsim.simulator.SimulationFIFO;
+import com.gforyas.webappsim.simulator.SimulationType;
 import com.gforyas.webappsim.util.ConfigParser;
 import com.gforyas.webappsim.simulator.Simulation;
 import com.gforyas.webappsim.simulator.SimulationConfig;
@@ -93,7 +93,7 @@ public class App {
             SinkToCsv sink = new SinkToCsv(seed);
             config.setSink(sink);
             for (var i = 0; i < config.getNumArrivals(); i++){
-                Simulation simulation = new SimulationFIFO(config, seed);
+                Simulation simulation = SimulationType.Builder.build(config, seed);
                 simulation.run();
                 Rngs.resetStreamId();
             }
