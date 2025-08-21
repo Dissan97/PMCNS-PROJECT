@@ -55,7 +55,7 @@ public class ConfigParser {
         try {
             // Look for the configs folder inside resources
             String basePath = "";
-            URL url = SimulationConfig.class.getClassLoader().getResource(basePath);
+            URL url = SimulationConfig.class.getResource(basePath);
 
             if (url == null) {
                 SysLogger.getInstance().getLogger().warning("No configs directory found in resources");

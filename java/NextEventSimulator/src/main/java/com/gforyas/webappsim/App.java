@@ -3,12 +3,9 @@ package com.gforyas.webappsim;
 import com.gforyas.webappsim.lemer.Rngs;
 import com.gforyas.webappsim.logging.SysLogger;
 import com.gforyas.webappsim.simulator.SimulationType;
-import com.gforyas.webappsim.util.ConfigParser;
+import com.gforyas.webappsim.util.*;
 import com.gforyas.webappsim.simulator.Simulation;
 import com.gforyas.webappsim.simulator.SimulationConfig;
-import com.gforyas.webappsim.util.Printer;
-import com.gforyas.webappsim.util.SinkToCsv;
-import com.gforyas.webappsim.util.UserUi;
 
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -91,13 +88,16 @@ public class App {
         LOGGER.info(info);
         for (var seed : config.getSeeds()) {
             SinkToCsv sink = new SinkToCsv(seed);
+            SinkConvergenceToCsv convergenceToCsv = new SinkConvergenceToCsv(seed);
             config.setSink(sink);
+            config.setSinkConv(convergenceToCsv);
             for (var i = 0; i < config.getNumArrivals(); i++){
                 Simulation simulation = SimulationType.Builder.build(config, seed);
                 simulation.run();
                 Rngs.resetStreamId();
             }
             sink.sink();
+            convergenceToCsv.sink();
         }
     }
 

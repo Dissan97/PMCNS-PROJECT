@@ -2,10 +2,12 @@ package com.gforyas.webappsim.estimators;
 
 import com.gforyas.webappsim.logging.SysLogger;
 import com.gforyas.webappsim.simulator.*;
+import com.gforyas.webappsim.util.SinkConvergenceToCsv;
 import com.gforyas.webappsim.util.SinkToCsv;
 import de.vandermeer.asciitable.AsciiTable;
 import de.vandermeer.asciitable.CWC_LongestLine;
 import de.vandermeer.skb.interfaces.transformers.textformat.TextAlignment;
+import org.apache.commons.lang3.tuple.Pair;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
@@ -55,6 +57,7 @@ public class StatsCollector {
             "Node", MEAN_RESPONSE_TIME, STD_RESPONSE_TIME,
             MEAN_POPULATION, STD_POPULATION,
             THROUGHPUT, UTILIZATION);
+    public static final String OVERALL = "OVERALL";
 
 
     // Global estimators
@@ -75,8 +78,15 @@ public class StatsCollector {
 
     private BatchMeansWindow batchMeans=null;
     private final double arrivalRate;
-    private final SinkToCsv sink;
 
+    /**
+     * Collect convergences
+     */
+    private Map<Pair<String, String>, Double> convergence = new HashMap<>();
+    private static final int EVENT_COUNT = 1000;
+    private int counter = 0;
+    private final SinkToCsv sink;
+    private SinkConvergenceToCsv sinkConvergence;
     /**
      * <p>Creates the estimator facade and registers all estimators/collectors.</p>
      *
@@ -128,7 +138,146 @@ public class StatsCollector {
         Path perJobCsv = OUT_DIR.resolve("per_job_times.csv");
         perJobCollector = new ResponseTimePerJobCollector(
                 scheduler, routingMatrix, rtA, rtB, rtP, perJobCsv);
+        prepareConvergence(scheduler);
+        this.sinkConvergence = cfg.getSinkConv();
 
+
+    }
+
+    private void prepareConvergence(NextEventScheduler scheduler) {
+        /**
+         *  public static final String MEAN_RESPONSE_TIME = "mean_response_time";
+         *     public static final String STD_RESPONSE_TIME = "std_response_time";
+         *     public static final String MEAN_POPULATION = "mean_population";
+         *     public static final String STD_POPULATION = "std_population";
+         *     public static final String THROUGHPUT = "throughput";
+         *     public static final String UTILIZATION = "utilization";
+         *     // Table headers
+         */
+        prepareConvergence(OVERALL);
+
+        for (var node: rtNode.keySet()){
+            prepareConvergence(node);
+        }
+        //scheduler.subscribe(Event.Type.ARRIVAL, this::updateConvergence);
+        scheduler.subscribe(Event.Type.DEPARTURE, this::updateConvergence);
+
+    }
+
+    private void updateConvergence(Event event, NextEventScheduler scheduler) {
+        if (counter != EVENT_COUNT) {
+            counter++;
+            return;
+        }
+        counter = 0;
+        Set<Pair<String, String>> pairs = this.convergence.keySet();
+
+        for (var pair : pairs) {
+            double value;
+            if (pair.getLeft().equals(OVERALL)) {
+                value = convergenceOverall(scheduler, pair); // fai restituire double invece di void
+                long departures = comp.getCountSinceStart();
+
+                sinkConvergence.appendConvRecord(
+                        SinkConvergenceToCsv.CsvHeaderConv.SCOPE, OVERALL
+                );
+                sinkConvergence.appendConvRecord(
+                        SinkConvergenceToCsv.CsvHeaderConv.METRIC, pair.getRight()
+                );
+                sinkConvergence.appendConvRecord(
+                        SinkConvergenceToCsv.CsvHeaderConv.VALUE, fmt(value)
+                );
+                sinkConvergence.appendConvRecord(
+                        SinkConvergenceToCsv.CsvHeaderConv.NUM_DEPARTURES, String.valueOf(departures)
+                );
+                sinkConvergence.lineConvRecord();
+
+            } else {
+                value = convergencePerNode(scheduler, pair); // anche qui restituisce double
+                long departures = compNode.get(pair.getLeft()).getCountSinceStart();
+
+                sinkConvergence.appendConvRecord(
+                        SinkConvergenceToCsv.CsvHeaderConv.SCOPE, "NODE_" + pair.getLeft()
+                );
+                sinkConvergence.appendConvRecord(
+                        SinkConvergenceToCsv.CsvHeaderConv.METRIC, pair.getRight()
+                );
+                sinkConvergence.appendConvRecord(
+                        SinkConvergenceToCsv.CsvHeaderConv.VALUE, fmt(value)
+                );
+                sinkConvergence.appendConvRecord(
+                        SinkConvergenceToCsv.CsvHeaderConv.NUM_DEPARTURES, String.valueOf(departures)
+                );
+                sinkConvergence.lineConvRecord();
+            }
+        }
+    }
+
+
+
+
+    private double convergenceOverall(NextEventScheduler scheduler, Pair<String, String> pair) {
+        double result = 0.0;
+        switch (pair.getRight()) {
+            case MEAN_RESPONSE_TIME -> result = rt.welfordEstimator.getMean();
+            case STD_RESPONSE_TIME -> result = rt.welfordEstimator.getStddev();
+            case MEAN_POPULATION -> result = pop.getMean();
+            case STD_POPULATION -> result = pop.getStd();
+            case THROUGHPUT -> {
+                double elapsed = scheduler.getCurrentTime();
+                result = elapsed > 0 ? comp.getCountSinceStart() / elapsed : 0.0;
+            }
+            case UTILIZATION -> {
+                double elapsed = scheduler.getCurrentTime();
+                result = (elapsed > 0 ? busy.getBusyTime() / elapsed : 0.0);
+            }
+            default -> {
+                // rimane 0.0 se non matcha nulla
+            }
+        }
+        convergence.put(pair, result);
+        return result;
+    }
+
+
+    private double convergencePerNode(NextEventScheduler scheduler, Pair<String, String> pair) {
+        double result = 0.0;
+        switch (pair.getRight()) {
+            case MEAN_RESPONSE_TIME ->
+                    result = rtNode.get(pair.getLeft()).welfordEstimator.getMean();
+            case STD_RESPONSE_TIME ->
+                    result = rtNode.get(pair.getLeft()).welfordEstimator.getStddev();
+            case MEAN_POPULATION ->
+                    result = popNode.get(pair.getLeft()).getMean();
+            case STD_POPULATION ->
+                    result = popNode.get(pair.getLeft()).getStd();
+            case THROUGHPUT -> {
+                double elapsed = scheduler.getCurrentTime();
+                result = elapsed > 0
+                        ? compNode.get(pair.getLeft()).getCountSinceStart() / elapsed
+                        : 0.0;
+            }
+            case UTILIZATION -> {
+                double elapsed = scheduler.getCurrentTime();
+                result = elapsed > 0
+                        ? busyNode.get(pair.getLeft()).getBusyTime() / elapsed
+                        : 0.0;
+            }
+            default -> {
+                // rimane 0.0 se non matcha nulla
+            }
+        }
+        convergence.put(pair, result);
+        return result;
+    }
+
+    private void prepareConvergence(String node) {
+        convergence.put(Pair.of(node, MEAN_RESPONSE_TIME), 0.0);
+        convergence.put(Pair.of(node, STD_RESPONSE_TIME), 0.0);
+        convergence.put(Pair.of(node, MEAN_POPULATION), 0.0);
+        convergence.put(Pair.of(node, STD_POPULATION), 0.0);
+        convergence.put(Pair.of(node, THROUGHPUT), 0.0);
+        convergence.put(Pair.of(node, UTILIZATION), 0.0);
     }
 
     /**
@@ -250,7 +399,7 @@ public class StatsCollector {
         printBatchesSummary(scheduler);
 
         // adding entry to sink
-        sink.appendRecord(SinkToCsv.CsvHeader.SCOPE, "OVERALL");
+        sink.appendRecord(SinkToCsv.CsvHeader.SCOPE, OVERALL);
         sink.appendRecord(SinkToCsv.CsvHeader.ARRIVAL_RATE, fmt(arrivalRate));
         sink.appendRecord(SinkToCsv.CsvHeader.MEAN_RESPONSE_TIME, fmt(meanRtOverall));
         sink.appendRecord(SinkToCsv.CsvHeader.STD_RESPONSE_TIME, fmt(stdRtOverall));
