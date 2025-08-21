@@ -10,6 +10,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.EnumMap;
 import java.util.Locale;
 
+import static com.gforyas.webappsim.App.getCfgPath;
+
 /**
  * Sink for convergence results.
  * Adds num_departures and distinguishes between OVERALL and NODE_xxx scope.
@@ -20,11 +22,15 @@ public class SinkConvergenceToCsv extends SinkToCsv {
 
     public SinkConvergenceToCsv(int seed) {
         super(seed);
+        Path cfgPath = Path.of(getCfgPath());
+        String cfgBaseName = cfgPath.getFileName().toString().replace(".json", "");
 
+        int dot = cfgBaseName.lastIndexOf('.');
+        String cfgStem = (dot > 0 ? cfgBaseName.substring(0, dot) : cfgBaseName);
         // Cambiamo il nome file per distinguerlo
         String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
-        String fileName = String.format("convergence_run%03d_seed%s_%s.csv",
-                Simulation.SIMULATION_COUNTER.get(), seed, ts);
+        String fileName = String.format("conv_%s_run%03d_seed%s_%s.csv",
+                cfgStem, Simulation.SIMULATION_COUNTER.get(), seed, ts);
 
         this.outputPath = OUT_DIR.resolve(fileName);
         try {

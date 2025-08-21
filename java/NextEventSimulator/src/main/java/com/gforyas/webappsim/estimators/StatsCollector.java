@@ -426,6 +426,8 @@ public class StatsCollector {
             sink.lineRecord();
         }
 
+
+        //todo remove
         /*if (perJobCollector != null) {
             perJobCollector.flushToDisk();
         }*/
