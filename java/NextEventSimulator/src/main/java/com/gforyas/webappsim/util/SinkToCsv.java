@@ -19,20 +19,26 @@ public class SinkToCsv {
             .toList();
 
     public static final Path OUT_DIR = Path.of(".output_simulation");
-    private final EnumMap<CsvHeader, String> records  = new EnumMap<>(CsvHeader.class);
+    private final EnumMap<CsvHeader, String> records = new EnumMap<>(CsvHeader.class);
     private final List<String> lines = new ArrayList<>();
     private final Path outputPath;
 
     public SinkToCsv(int seed) {
-
         String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
-        String cfgFile = getCfgPath().replace(".json", "");
-        int dot = cfgFile.lastIndexOf('.');
-        String cfgStem = (dot > 0 ? cfgFile.substring(0, dot) : cfgFile);
 
+        // Get only the base name of the config file (remove directories)
+        Path cfgPath = Path.of(getCfgPath());
+        String cfgBaseName = cfgPath.getFileName().toString().replace(".json", "");
+
+        int dot = cfgBaseName.lastIndexOf('.');
+        String cfgStem = (dot > 0 ? cfgBaseName.substring(0, dot) : cfgBaseName);
+
+        // Build file name under OUT_DIR only
         String fileName = String.format("results_%s_run%03d_seed%s_%s.csv",
                 cfgStem, Simulation.SIMULATION_COUNTER.get(), seed, ts);
+
         this.outputPath = OUT_DIR.resolve(fileName);
+
         try {
             Files.createDirectories(OUT_DIR);
         } catch (IOException e) {
@@ -45,11 +51,11 @@ public class SinkToCsv {
         records.put(header, value);
     }
 
-    public void lineRecord(){
+    public void lineRecord() {
         StringBuilder stringBuilder = new StringBuilder();
 
         for (var header : CsvHeader.values()) {
-                stringBuilder.append(records.get(header)).append(',');
+            stringBuilder.append(records.get(header)).append(',');
         }
         stringBuilder.replace(stringBuilder.length() - 1, stringBuilder.length(), "\n");
 
@@ -58,7 +64,7 @@ public class SinkToCsv {
     }
 
     public void sink() {
-        try (BufferedWriter writer= new BufferedWriter(new FileWriter(outputPath.toFile()))) {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(outputPath.toFile()))) {
 
             StringBuilder stringBuilder = new StringBuilder();
             HEADERS.forEach(s -> stringBuilder.append(s).append(','));
@@ -75,8 +81,6 @@ public class SinkToCsv {
         }
     }
 
-
-
     public enum CsvHeader {
         SCOPE,
         ARRIVAL_RATE,
@@ -89,10 +93,9 @@ public class SinkToCsv {
         STD_RESPONSE_TIME_COV,
         STD_POPULATION_COV;
 
-        public String getName(){
+        public String getName() {
             return this.name().toLowerCase(Locale.ROOT);
         }
     }
-
 
 }

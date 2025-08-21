@@ -1,0 +1,24 @@
+{
+  "arrival_rate": [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2],
+  "service_rates": {
+    "A": {"1": 0.2, "2": 0.4, "3": 0.15},
+    "B": {"1": 0.8},
+    "P": {"2": 0.7}
+  },
+  "routing_matrix": {
+    "A": {
+      "1": {"target": "B", "class": "1"},
+      "2": {"target": "P", "class": "2"},
+      "3": "EXIT"
+    },
+    "B": {
+      "1": {"target": "A", "class": "2"}
+    },
+    "P": {
+      "2": {"target": "A", "class": "3"}
+    }
+    },
+  "max_events": 10000000,
+  "initial_arrival": 0,
+  "warmup_completions": 10000
+}

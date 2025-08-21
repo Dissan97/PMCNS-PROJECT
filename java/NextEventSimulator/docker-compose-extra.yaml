@@ -1,0 +1,52 @@
+version: "3.9"
+
+services:
+  app-obj-1-arrival:
+    build: .
+    container_name: app-obj-1-arrival
+    volumes:
+      - ./docker-cfgs:/app/cfgs:ro
+      - ./.docker-vol/app-obj-1-arrival:/app/.output_simulation
+    command: >
+      sh -c "rm -rf /app/.output_simulation/* &&
+             java -jar WebAppSimulator.jar cfgs/obj1_arrivals.json"
+
+  app-obj-2-arrival:
+    build: .
+    container_name: app-obj-2-arrival
+    volumes:
+      - ./docker-cfgs:/app/cfgs:ro
+      - ./.docker-vol/app-obj-2-arrival:/app/.output_simulation
+    command: >
+      sh -c "rm -rf /app/.output_simulation/* &&
+             java -jar WebAppSimulator.jar cfgs/obj2_arrivals.json"
+
+  app-obj-3-arrival:
+    build: .
+    container_name: app-obj-3-arrival
+    volumes:
+      - ./docker-cfgs:/app/cfgs:ro
+      - ./.docker-vol/app-obj-3-arrival:/app/.output_simulation
+    command: >
+      sh -c "rm -rf /app/.output_simulation/* &&
+             java -jar WebAppSimulator.jar cfgs/obj3_arrivals.json"
+
+  app-obj-3-enhance:
+    build: .
+    container_name: app-obj-3-enhance
+    volumes:
+      - ./docker-cfgs:/app/cfgs:ro
+      - ./.docker-vol/app-obj-3-enhance:/app/.output_simulation
+    command: >
+      sh -c "rm -rf /app/.output_simulation/* &&
+             java -jar WebAppSimulator.jar cfgs/obj3_enhance.json"
+
+  app-obj-3-lb:
+    build: .
+    container_name: app-obj-3-lb
+    volumes:
+      - ./docker-cfgs:/app/cfgs:ro
+      - ./.docker-vol/app-obj-3-lb:/app/.output_simulation
+    command: >
+      sh -c "rm -rf /app/.output_simulation/* &&
+             java -jar WebAppSimulator.jar cfgs/obj3_lb.json"

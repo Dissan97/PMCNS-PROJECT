@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  app-obj-1:
+    build: .
+    container_name: app-obj-1
+    volumes:
+      - ./docker-cfgs:/app/cfgs:ro
+      - ./.docker-vol/app-obj-1:/app/.output_simulation
+    command: >
+      sh -c "rm -rf /app/.output_simulation/* &&
+             java -jar WebAppSimulator.jar cfgs/obj1.json"
+
+  app-obj-2:
+    build: .
+    container_name: app-obj-2
+    volumes:
+      - ./docker-cfgs:/app/cfgs:ro
+      - ./.docker-vol/app-obj-2:/app/.output_simulation
+    command: >
+      sh -c "rm -rf /app/.output_simulation/* &&
+             java -jar WebAppSimulator.jar cfgs/obj2.json"
+
+  app-obj-3:
+    build: .
+    container_name: app-obj-3
+    volumes:
+      - ./docker-cfgs:/app/cfgs:ro
+      - ./.docker-vol/app-obj-3:/app/.output_simulation
+    command: >
+      sh -c "rm -rf /app/.output_simulation/* &&
+             java -jar WebAppSimulator.jar cfgs/obj3.json"

@@ -13,12 +13,13 @@ import org.json.JSONTokener;
 
 import java.io.FileNotFoundException;
 import java.io.FileReader;
-import java.io.IOException;
-import java.net.URISyntaxException;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 import java.util.stream.Stream;
 
 import static com.gforyas.webappsim.util.ConfigParser.JSONKeys.*;
@@ -36,7 +37,6 @@ import static com.gforyas.webappsim.util.ConfigParser.JSONKeys.*;
  */
 public class ConfigParser {
 
-
     private static final List<String> DEFAULT_CONFIGS = findConfigs();
     public static final String CLASS_EQUAL = " class=";
 
@@ -49,28 +49,48 @@ public class ConfigParser {
         return DEFAULT_CONFIGS;
     }
 
-    @NotNull
     private static List<String> findConfigs() {
+        List<String> result = new ArrayList<>();
 
-        Path configDir;
         try {
-            configDir = Paths.get(Objects.requireNonNull(SimulationConfig.class.getResource("")).toURI());
-        } catch (URISyntaxException e) {
-            String severe = "Error uri config file: " + e.getMessage();
-            SysLogger.getInstance().getLogger().severe(severe);
+            // Look for the configs folder inside resources
+            String basePath = "";
+            URL url = SimulationConfig.class.getClassLoader().getResource(basePath);
+
+            if (url == null) {
+                SysLogger.getInstance().getLogger().warning("No configs directory found in resources");
+                return Collections.emptyList();
+            }
+
+            if (url.getProtocol().equals("file")) {
+                // Case: running from IDE or exploded build -> use filesystem path
+                Path configDir = Paths.get(url.toURI());
+                try (Stream<Path> stream = Files.list(configDir)) {
+                    stream.filter(p -> p.toString().endsWith(".json"))
+                            .map(p -> p.getFileName().toString())
+                            .forEach(result::add);
+                }
+            } else if (url.getProtocol().equals("jar")) {
+                // Case: running from packaged JAR -> scan entries inside the jar
+                String jarPath = url.getPath().substring(5, url.getPath().indexOf("!"));
+                try (JarFile jar = new JarFile(jarPath)) {
+                    jar.stream()
+                            .map(JarEntry::getName)
+                            .filter(n -> n.startsWith(basePath) && n.endsWith(".json"))
+                            .map(n -> n.substring(basePath.length()))
+                            .forEach(result::add);
+                }
+            } else {
+                // Any other protocol is unexpected
+                SysLogger.getInstance().getLogger()
+                        .warning("Unsupported protocol for configs: " + url.getProtocol());
+            }
+        } catch (Exception e) {
+            SysLogger.getInstance().getLogger().severe("Error loading configs: " + e.getMessage());
             return Collections.emptyList();
         }
-        try (Stream<Path> stream = Files.list(configDir)) {
-            return stream
-                    .map(p -> p.getFileName().toString())
-                    .filter(path -> path.endsWith(".json"))
-                    .toList();
-        } catch (IOException e) {
-            String severe = "Error reading config file: " + e.getMessage();
-            SysLogger.getInstance().getLogger().severe(severe);
 
-        }
-        return Collections.emptyList();
+        return result;
     }
 
     /**
@@ -134,9 +154,8 @@ public class ConfigParser {
             config.setWarmupCompletions(jsonObject.getInt(WARMUP_COMPLETIONS.name().toLowerCase()));
         }
 
-
         parseService(serviceJson, serviceMap);
-        parseMatrix(routingJson, routingMap);          // legacy single-target
+        parseMatrix(routingJson, routingMap); // legacy single-target
         // NEW: single entry point, fills BOTH maps (legacy + LB-aware)
         parseMatrix(routingJson, routingMap, routingMapLB);
         parseBatch(jsonObject, config);// new multi-target
@@ -146,8 +165,6 @@ public class ConfigParser {
         checkSimulationType(jsonObject, config);
         return config;
     }
-
-
 
     private static void getArrivalRate(JSONObject jsonObject, SimulationConfig config) {
         List<Double> arrivalRate = new ArrayList<>();
@@ -209,6 +226,7 @@ public class ConfigParser {
         }
 
     }
+
     /**
      * Parse routing_matrix supporting String, JSONObject and JSONArray rules,
      * and fill BOTH maps:
@@ -218,8 +236,7 @@ public class ConfigParser {
     private static void parseMatrix(
             @NotNull JSONObject routingJson,
             Map<String, Map<String, TargetClass>> legacyMap,
-            Map<String, Map<String, java.util.List<TargetClass>>> lbMap
-    ) {
+            Map<String, Map<String, java.util.List<TargetClass>>> lbMap) {
         for (String node : routingJson.keySet()) {
             JSONObject perClass = routingJson.getJSONObject(node);
 
@@ -246,7 +263,8 @@ public class ConfigParser {
         }
     }
 
-    private static void checkForRoutingMatrix(Map<String, Map<String, TargetClass>> routingMap, String node, JSONObject perClass) {
+    private static void checkForRoutingMatrix(Map<String, Map<String, TargetClass>> routingMap, String node,
+                                              JSONObject perClass) {
         try {
             for (String clsKey : perClass.keySet()) {
                 Object rule = perClass.get(clsKey);
@@ -277,14 +295,14 @@ public class ConfigParser {
     }
 
     /**
-     * Normalize a routing rule (String | JSONObject | JSONArray) into a list of TargetClass.
+     * Normalize a routing rule (String | JSONObject | JSONArray) into a list of
+     * TargetClass.
      * - String: "EXIT" (target defaults to current node but ignored on EXIT)
      * - JSONObject: {"target":"B","class":"1"}
      * - JSONArray: mixed list of String/JSONObject, in order
      */
     private static java.util.List<TargetClass> parseRuleToList(
-            String node, String clsKey, Object rule
-    ) {
+            String node, String clsKey, Object rule) {
         java.util.ArrayList<TargetClass> out = new java.util.ArrayList<>();
 
         if (rule instanceof String s) {
@@ -295,7 +313,7 @@ public class ConfigParser {
 
         if (rule instanceof JSONObject obj) {
             String target = obj.getString(JSONKeys.TARGET.name().toLowerCase());
-            String clazz  = obj.get(JSONKeys.CLASS.name().toLowerCase()).toString();
+            String clazz = obj.get(JSONKeys.CLASS.name().toLowerCase()).toString();
             out.add(new TargetClass(target, clazz));
             return out;
         }
@@ -332,7 +350,6 @@ public class ConfigParser {
         return out;
     }
 
-
     private static void checkSimulationType(JSONObject jsonObject, SimulationConfig config) {
         String stKey = JSONKeys.SIMULATION_TYPE.name().toLowerCase();
         if (jsonObject.has(stKey)) {
@@ -361,6 +378,7 @@ public class ConfigParser {
             }
         }
     }
+
     /**
      * Enumeration of JSON key names used in configuration files.
      */

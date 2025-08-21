@@ -295,3 +295,4 @@ nb-configuration.xml
 ##############################
 **/.mvn
 **/.local**
+**/.docker-vol
