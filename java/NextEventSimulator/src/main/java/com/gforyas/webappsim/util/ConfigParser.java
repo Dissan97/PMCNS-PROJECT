@@ -2,6 +2,7 @@ package com.gforyas.webappsim.util;
 
 import com.gforyas.webappsim.logging.SysLogger;
 import com.gforyas.webappsim.simulator.Balancing;
+import com.gforyas.webappsim.simulator.ProbArc; // NEW
 import com.gforyas.webappsim.simulator.SimulationConfig;
 import com.gforyas.webappsim.simulator.SimulationType;
 import com.gforyas.webappsim.simulator.TargetClass;
@@ -24,36 +25,18 @@ import java.util.stream.Stream;
 
 import static com.gforyas.webappsim.util.ConfigParser.JSONKeys.*;
 
-/**
- * Utility class for parsing JSON configuration files into
- * {@link SimulationConfig} instances.
- * <p>
- * This parser reads configuration files containing arrival rates, service
- * rates, routing matrices,
- * and maximum event limits. It supports both default configuration files
- * packaged with the application
- * and custom file paths provided by the user.
- * </p>
- */
 public class ConfigParser {
 
     private static final List<String> DEFAULT_CONFIGS = findConfigs();
     public static final String CLASS_EQUAL = " class=";
 
-    /**
-     * Returns the default config found in the resources
-     *
-     * @return List of configs
-     */
     public static List<String> getDefaultConfigs() {
         return DEFAULT_CONFIGS;
     }
 
     private static List<String> findConfigs() {
         List<String> result = new ArrayList<>();
-
         try {
-            // Look for the configs folder inside resources
             String basePath = "";
             URL url = SimulationConfig.class.getResource(basePath);
 
@@ -63,7 +46,6 @@ public class ConfigParser {
             }
 
             if (url.getProtocol().equals("file")) {
-                // Case: running from IDE or exploded build -> use filesystem path
                 Path configDir = Paths.get(url.toURI());
                 try (Stream<Path> stream = Files.list(configDir)) {
                     stream.filter(p -> p.toString().endsWith(".json"))
@@ -71,7 +53,6 @@ public class ConfigParser {
                             .forEach(result::add);
                 }
             } else if (url.getProtocol().equals("jar")) {
-                // Case: running from packaged JAR -> scan entries inside the jar
                 String jarPath = url.getPath().substring(5, url.getPath().indexOf("!"));
                 try (JarFile jar = new JarFile(jarPath)) {
                     jar.stream()
@@ -81,7 +62,6 @@ public class ConfigParser {
                             .forEach(result::add);
                 }
             } else {
-                // Any other protocol is unexpected
                 SysLogger.getInstance().getLogger()
                         .warning("Unsupported protocol for configs: " + url.getProtocol());
             }
@@ -89,27 +69,13 @@ public class ConfigParser {
             SysLogger.getInstance().getLogger().severe("Error loading configs: " + e.getMessage());
             return Collections.emptyList();
         }
-
         return result;
     }
 
-    /**
-     * Private constructor to prevent instantiation.
-     *
-     * @throws UnsupportedOperationException always thrown when called
-     */
     private ConfigParser() {
         throw new UnsupportedOperationException("cannot be instantiated");
     }
 
-    /**
-     * Reads and parses a simulation configuration JSON file into a
-     * {@link SimulationConfig} object.
-     *
-     * @param path The resource path to the JSON configuration file.
-     * @return A populated {@link SimulationConfig} instance.
-     * @throws NullPointerException if the resource is not found.
-     */
     public static SimulationConfig getConfig(String path) {
         JSONTokener jsonTokener = null;
         try {
@@ -154,10 +120,33 @@ public class ConfigParser {
             config.setWarmupCompletions(jsonObject.getInt(WARMUP_COMPLETIONS.name().toLowerCase()));
         }
 
+        // Parse servizi (necessario per validare la tabella probabilistica)
         parseService(serviceJson, serviceMap);
-        parseMatrix(routingJson, routingMap); // legacy single-target
-        // NEW: single entry point, fills BOTH maps (legacy + LB-aware)
+
+// NEW: routing_mode opzionale
+        if (jsonObject.has(ROUTING_MODE.name().toLowerCase())) {
+            config.setRoutingMode(jsonObject.getString(ROUTING_MODE.name().toLowerCase()));
+        }
+
+// NEW: safety opzionale
+        if (jsonObject.has(SAFETY.name().toLowerCase())) {
+            JSONObject safety = jsonObject.getJSONObject(SAFETY.name().toLowerCase());
+            if (safety.has(MAX_HOPS.name().toLowerCase())) {
+                config.setSafetyMaxHops(safety.getInt(MAX_HOPS.name().toLowerCase()));
+            }
+        }
+
+// NEW: costruisci la tabella probabilistica (auto-detect "p")
+        parseProbRouting(routingJson, serviceMap, config);
+
+// ✅ SOLO se NON è probabilistico, popola la mappa legacy single-target
+        if (!config.isProbabilistic()) {
+            parseMatrix(routingJson, routingMap); // legacy single-target
+        }
+
+// LB-aware (lasciare): qui faremo anche un piccolo filtro per gli oggetti con "p"
         parseMatrix(routingJson, routingMap, routingMapLB);
+
         parseBatch(jsonObject, config);// new multi-target
         config.setServiceRates(serviceMap);
         config.setRoutingMatrix(routingMap);
@@ -187,15 +176,6 @@ public class ConfigParser {
         }
     }
 
-    /**
-     * Parses the {@code service_rates} section of the JSON configuration.
-     *
-     * @param serviceJson The {@link JSONObject} containing service rate
-     *                    definitions.
-     * @param serviceMap  The map to populate, where each key is a node name, and
-     *                    each value is a map
-     *                    of job class IDs to their service rates.
-     */
     private static void parseService(@NotNull JSONObject serviceJson, Map<String, Map<String, Double>> serviceMap) {
         for (String k : serviceJson.keySet()) {
             serviceMap.putIfAbsent(k, new HashMap<>());
@@ -206,33 +186,15 @@ public class ConfigParser {
         }
     }
 
-    /**
-     * Parses the {@code routing_matrix} section of the JSON configuration.
-     *
-     * @param routingJson The {@link JSONObject} containing routing rules per node
-     *                    and job class.
-     * @param routingMap  The map to populate, where each key is a node name, and
-     *                    each value is a map
-     *                    of job class IDs to their {@link TargetClass} routing
-     *                    definition.
-     */
     private static void parseMatrix(@NotNull JSONObject routingJson,
                                     Map<String, Map<String, TargetClass>> routingMap) {
         for (String node : routingJson.keySet()) {
             routingMap.putIfAbsent(node, new HashMap<>());
             JSONObject perClass = routingJson.getJSONObject(node);
-
             checkForRoutingMatrix(routingMap, node, perClass);
         }
-
     }
 
-    /**
-     * Parse routing_matrix supporting String, JSONObject and JSONArray rules,
-     * and fill BOTH maps:
-     * - legacyMap: single TargetClass per (node,class) = first candidate
-     * - lbMap: full list of candidates per (node,class)
-     */
     private static void parseMatrix(
             @NotNull JSONObject routingJson,
             Map<String, Map<String, TargetClass>> legacyMap,
@@ -246,13 +208,10 @@ public class ConfigParser {
             for (String clsKey : perClass.keySet()) {
                 Object rule = perClass.get(clsKey);
 
-                // Normalize any kind of rule to a list of TargetClass
                 java.util.List<TargetClass> candidates = parseRuleToList(node, clsKey, rule);
 
-                // Store LB-aware list (immutable copy)
                 lbMap.get(node).put(clsKey, java.util.List.copyOf(candidates));
 
-                // Derive legacy single-target by taking the first candidate, if present
                 if (!candidates.isEmpty()) {
                     legacyMap.get(node).put(clsKey, candidates.getFirst());
                 } else {
@@ -294,13 +253,6 @@ public class ConfigParser {
         }
     }
 
-    /**
-     * Normalize a routing rule (String | JSONObject | JSONArray) into a list of
-     * TargetClass.
-     * - String: "EXIT" (target defaults to current node but ignored on EXIT)
-     * - JSONObject: {"target":"B","class":"1"}
-     * - JSONArray: mixed list of String/JSONObject, in order
-     */
     private static java.util.List<TargetClass> parseRuleToList(
             String node, String clsKey, Object rule) {
         java.util.ArrayList<TargetClass> out = new java.util.ArrayList<>();
@@ -312,6 +264,10 @@ public class ConfigParser {
         }
 
         if (rule instanceof JSONObject obj) {
+            // ✅ NOVITÀ: se è un oggetto probabilistico (ha "p"), lo ignoriamo qui.
+            if (obj.has("p")) {
+                return out; // vuoto → niente candidato legacy/LB da questo elemento
+            }
             String target = obj.getString(JSONKeys.TARGET.name().toLowerCase());
             String clazz = obj.get(JSONKeys.CLASS.name().toLowerCase()).toString();
             out.add(new TargetClass(target, clazz));
@@ -322,7 +278,6 @@ public class ConfigParser {
             if (arr.isEmpty()) {
                 String warning = "routing_matrix: empty array for node=" + node + CLASS_EQUAL + clsKey;
                 SysLogger.getInstance().getLogger().warning(warning);
-
                 return out;
             }
             for (int i = 0; i < arr.length(); i++) {
@@ -330,6 +285,8 @@ public class ConfigParser {
                 switch (it) {
                     case String s2 -> out.add(new TargetClass(node, s2));
                     case JSONObject o -> {
+                        // ✅ NOVITÀ: se l'elemento ha "p", è probabilistico → lo ignoriamo qui
+                        if (o.has("p")) break;
                         String target = o.getString(JSONKeys.TARGET.name().toLowerCase());
                         String clazz = o.get(JSONKeys.CLASS.name().toLowerCase()).toString();
                         out.add(new TargetClass(target, clazz));
@@ -343,11 +300,182 @@ public class ConfigParser {
             }
             return out;
         }
+
         String severe = "routing_matrix: unsupported rule type for node=" + node + CLASS_EQUAL + clsKey +
                 " → " + rule;
         SysLogger.getInstance().getLogger().severe(severe);
-
         return out;
+    }
+
+
+    // ============================================================
+    // NEW: parsing della tabella probabilistica (auto-detect + validazione)
+    // ============================================================
+    private static void parseProbRouting(
+            @NotNull JSONObject routingJson,
+            Map<String, Map<String, Double>> serviceMap,
+            SimulationConfig config
+    ) {
+        final double TOL = 1e-9;
+        boolean anyProbabilistic = false;
+        Map<String, Map<Integer, List<ProbArc>>> probTable = new HashMap<>();
+
+        // Se l'utente ha già specificato "routing_mode":"probabilistic", lo memorizziamo,
+        // ma comunque facciamo auto-detect verificando la presenza di "p" nelle regole.
+        boolean modeFlag = "probabilistic".equalsIgnoreCase(config.getRoutingMode());
+
+        for (String node : routingJson.keySet()) {
+            JSONObject perClass = routingJson.getJSONObject(node);
+
+            for (String clsKey : perClass.keySet()) {
+                Object rule = perClass.get(clsKey);
+
+                // Caso 1: JSONArray di archi con "p"
+                if (rule instanceof JSONArray arr && containsProbEntries(arr)) {
+                    List<ProbArc> arcs = parseProbArcArray(node, clsKey, arr, serviceMap);
+                    validateSum(node, clsKey, arcs, TOL);
+                    probTable.computeIfAbsent(node, k -> new HashMap<>())
+                            .put(parseClassToInt(clsKey), arcs);
+                    anyProbabilistic = true;
+                    continue;
+                }
+
+                // Caso 2: JSONObject singolo con "p"
+                if (rule instanceof JSONObject obj && obj.has("p")) {
+                    ProbArc arc = parseProbArcObject(node, clsKey, obj, serviceMap);
+                    List<ProbArc> arcs = new ArrayList<>();
+                    arcs.add(arc);
+                    validateSum(node, clsKey, arcs, TOL);
+                    probTable.computeIfAbsent(node, k -> new HashMap<>())
+                            .put(parseClassToInt(clsKey), arcs);
+                    anyProbabilistic = true;
+                    continue;
+                }
+
+                // Altrimenti: non probabilistico per (node,clsKey) → gestito dal legacy.
+            }
+        }
+
+        if (modeFlag && !anyProbabilistic) {
+            String severe = "routing_mode=probabilistic ma nessuna regola con 'p' trovata in routing_matrix";
+            SysLogger.getInstance().getLogger().severe(severe);
+            System.exit(-1);
+        }
+
+        if (anyProbabilistic) {
+            // Se l'utente non ha esplicitato la modalità, la impostiamo in auto-detect
+            if (config.getRoutingMode() == null) {
+                config.setRoutingMode("probabilistic");
+            }
+            config.setProbRoutingTable(probTable);
+        }
+    }
+
+    /** Ritorna true se l'array contiene almeno un oggetto con campo "p". */
+    private static boolean containsProbEntries(JSONArray arr) {
+        for (int i = 0; i < arr.length(); i++) {
+            Object it = arr.get(i);
+            if (it instanceof JSONObject o && o.has("p")) return true;
+        }
+        return false;
+    }
+
+    /** Parsifica un JSONArray di oggetti con "p" in una lista di ProbArc. */
+    private static List<ProbArc> parseProbArcArray(
+            String node, String clsKey, JSONArray arr,
+            Map<String, Map<String, Double>> serviceMap
+    ) {
+        List<ProbArc> out = new ArrayList<>();
+        for (int i = 0; i < arr.length(); i++) {
+            Object it = arr.get(i);
+            if (it instanceof JSONObject o && o.has("p")) {
+                out.add(parseProbArcObject(node, clsKey, o, serviceMap));
+            } else {
+                // elementi non probabilistici sono ignorati in questo ramo
+                // (restano gestiti dal legacy parseMatrix)
+            }
+        }
+        if (out.isEmpty()) {
+            String severe = "routing_matrix probabilistica: array vuoto per node=" + node + CLASS_EQUAL + clsKey;
+            SysLogger.getInstance().getLogger().severe(severe);
+            System.exit(-1);
+        }
+        return out;
+    }
+
+    /** Parsifica un singolo JSONObject con "p" in ProbArc, con validazioni. */
+    private static ProbArc parseProbArcObject(
+            String node, String clsKey, JSONObject o,
+            Map<String, Map<String, Double>> serviceMap
+    ) {
+        // target obbligatorio
+        if (!o.has(TARGET.name().toLowerCase())) {
+            String severe = "routing_matrix probabilistica: manca 'target' per node=" + node + CLASS_EQUAL + clsKey;
+            SysLogger.getInstance().getLogger().severe(severe);
+            System.exit(-1);
+        }
+        String target = o.getString(TARGET.name().toLowerCase());
+
+        // p obbligatorio
+        double p = o.getDouble("p");
+        if (!(p > 0.0)) {
+            String severe = "routing_matrix probabilistica: p deve essere > 0 per node=" + node + CLASS_EQUAL + clsKey;
+            SysLogger.getInstance().getLogger().severe(severe);
+            System.exit(-1);
+        }
+
+        // EXIT: class NON deve esserci
+        if (SimulationConfig.EXIT.equalsIgnoreCase(target)) {
+            if (o.has(CLASS.name().toLowerCase())) {
+                String warning = "routing_matrix probabilistica: 'class' ignorata su EXIT per node=" +
+                        node + CLASS_EQUAL + clsKey;
+                SysLogger.getInstance().getLogger().warning(warning);
+            }
+            return new ProbArc(target, null, p);
+        }
+
+        // target ≠ EXIT → class obbligatoria
+        if (!o.has(CLASS.name().toLowerCase())) {
+            String severe = "routing_matrix probabilistica: manca 'class' per target=" + target +
+                    " node=" + node + CLASS_EQUAL + clsKey;
+            SysLogger.getInstance().getLogger().severe(severe);
+            System.exit(-1);
+        }
+
+        Integer nextClass = parseClassToInt(o.get(CLASS.name().toLowerCase()));
+        // Validazione: il nodo e la classe esistono nei service rates
+        if (!serviceMap.containsKey(target)) {
+            String severe = "routing_matrix probabilistica: target inesistente nei service_rates: " + target;
+            SysLogger.getInstance().getLogger().severe(severe);
+            System.exit(-1);
+        }
+        Map<String, Double> classes = serviceMap.get(target);
+        if (!classes.containsKey(nextClass.toString())) {
+            String severe = "routing_matrix probabilistica: class '" + nextClass + "' assente nei service_rates del nodo " + target;
+            SysLogger.getInstance().getLogger().severe(severe);
+            System.exit(-1);
+        }
+
+        return new ProbArc(target, nextClass, p);
+    }
+
+    /** Verifica che la somma delle p sia 1 entro tolleranza; in caso contrario termina. */
+    private static void validateSum(String node, String clsKey, List<ProbArc> arcs, double tol) {
+        double sum = 0.0;
+        for (ProbArc a : arcs) sum += a.getP();
+        if (Math.abs(sum - 1.0) > tol) {
+            String severe = String.format(Locale.ROOT,
+                    "routing_matrix probabilistica: Σp=%.12f ≠ 1 per node=%s class=%s",
+                    sum, node, clsKey);
+            SysLogger.getInstance().getLogger().severe(severe);
+            System.exit(-1);
+        }
+    }
+
+    /** Converte una chiave di classe (String o Number) a Integer. */
+    private static Integer parseClassToInt(Object clsVal) {
+        if (clsVal instanceof Number n) return n.intValue();
+        return Integer.parseInt(clsVal.toString());
     }
 
     private static void checkSimulationType(JSONObject jsonObject, SimulationConfig config) {
@@ -365,7 +493,6 @@ public class ConfigParser {
             config.setSimulationType(SimulationType.NORMAL);
         }
 
-        // --- Load balance policy of LOAD_BALANCE selected ---
         if (config.getSimulationType() == SimulationType.LOAD_BALANCE) {
             String lbKey = JSONKeys.LOAD_BALANCE.name().toLowerCase();
             if (jsonObject.has(lbKey)) {
@@ -379,33 +506,13 @@ public class ConfigParser {
         }
     }
 
-    /**
-     * Enumeration of JSON key names used in configuration files.
-     */
+    /** Chiavi JSON supportate. */
     public enum JSONKeys {
-        /**
-         * JSON key for the global arrival rate of jobs.
-         */
         ARRIVAL_RATE,
-        /**
-         * JSON key for the service rates of each server and job class.
-         */
         SERVICE_RATES,
-        /**
-         * JSON key for the routing matrix between servers and job classes.
-         */
         ROUTING_MATRIX,
-        /**
-         * JSON key for the maximum number of events to simulate.
-         */
         MAX_EVENTS,
-        /**
-         * JSON key for the target node in routing rules.
-         */
         TARGET,
-        /**
-         * JSON key for the job class in routing rules.
-         */
         CLASS,
         INITIAL_ARRIVAL,
         SEEDS,
@@ -414,7 +521,10 @@ public class ConfigParser {
         MAX_BATCHES,
         SIMULATION_TYPE,
         LOAD_BALANCE,
-        BALANCING
+        BALANCING,
+        // NEW:
+        ROUTING_MODE,
+        SAFETY,
+        MAX_HOPS
     }
-
 }

@@ -84,6 +84,19 @@ public class CompletionsEstimator {
     }
 
     /**
+     * <p>Bridge API per il caso probabilistico: notifica esplicitamente un completamento
+     * (EXIT) senza passare dalla routing matrix.</p>
+     *
+     * <p>Usa la <b>stessa</b> logica del ramo EXIT (incremento di {@code totalCount}) e
+     * resta compatibile con il meccanismo di baseline ({@link #startCollecting()}).</p>
+     *
+     * @param now current simulation time (non usato ma utile per simmetria API)
+     */
+    public void notifyExit(double now) {
+        totalCount += 1;
+    }
+
+    /**
      * <p>Determines whether a departure from the given server and job class
      * corresponds to an <code>EXIT</code> in the routing map.</p>
      *

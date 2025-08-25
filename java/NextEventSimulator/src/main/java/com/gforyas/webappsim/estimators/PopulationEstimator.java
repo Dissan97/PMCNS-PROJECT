@@ -92,6 +92,16 @@ public class PopulationEstimator {
         lastTime = now;
     }
 
+    /** Utility per avanzare l'integrazione fino a {@code now} senza scheduler (bridge API). */
+    private void tickTo(double now) {
+        double dt = now - lastTime;
+        if (dt > 0.0) {
+            area += pop * dt;
+            area2 += (double) pop * (double) pop * dt;
+        }
+        lastTime = now;
+    }
+
     /**
      * Handles an ARRIVAL event with matching between anonymous jobs (id &lt; 0)
      * and the first known id (id &gt;= 0).
@@ -157,6 +167,21 @@ public class PopulationEstimator {
             return false;
         TargetClass tc = m.get(Integer.toString(jobClass));
         return tc != null && "EXIT".equalsIgnoreCase(tc.eventClass());
+    }
+
+    /**
+     * Bridge API per probabilistico: notifica esplicita di un EXIT a tempo {@code now}
+     * (equivalente al ramo EXIT di {@link #tickThenMaybeExit} ma senza consultare la routing).
+     */
+    public void notifyExit(int jobId, double now) {
+        tickTo(now);
+        if (jobId >= 0) {
+            inSystem.remove(jobId);
+        }
+        pop -= 1;
+        if (pop < min) {
+            min = pop;
+        }
     }
 
     /**
