@@ -13,9 +13,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * Holds configuration parameters for a single simulation run.
  * <p>
- * This class encapsulates the input parameters required to set up
- * the simulation, including arrival rate, service rates, routing rules,
- * and maximum number of events to process.
+ * Questa classe incapsula i parametri di input necessari per inizializzare
+ * la simulazione, inclusi tassi di arrivo, tassi di servizio, regole di routing
+ * e numero massimo di eventi da processare.
  * </p>
  */
 public class SimulationConfig {
@@ -24,7 +24,6 @@ public class SimulationConfig {
     private SinkToCsv sink;
     private SinkConvergenceToCsv sinkConv;
 
-
     public int getWarmupCompletions() {
         return warmupCompletions;
     }
@@ -32,63 +31,69 @@ public class SimulationConfig {
     public void setWarmupCompletions(int warmupCompletions) {
         this.warmupCompletions = warmupCompletions;
     }
+
     private static final AtomicInteger ARRIVAL_RATE_INDEX = new AtomicInteger(0);
-    /**
-     * External arrival rate λ (jobs per unit time).
-     */
+
+    /** Tasso di arrivo esterno λ (jobs per unit time). */
     private List<Double> arrivalRate = List.of(1.2);
 
     /**
-     * Service rates for each node and class.
-     * Format: nodeName → (classId → mean service time E[S]).
+     * Tassi di servizio per nodo e classe.
+     * Formato: nodeName → (classId → mean service time E[S]).
      */
     private Map<String, Map<String, Double>> serviceRates;
 
     /**
-     * Routing matrix defining the forwarding logic between nodes.
-     * Format: nodeName → (classId → {@link TargetClass}).
+     * Routing deterministico (legacy).
+     * Formato: nodeName → (classId → {@link TargetClass}).
      */
     private Map<String, Map<String, TargetClass>> routingMatrix;
 
-    /**
-     * Maximum number of events to process before stopping arrivals.
-     */
+    /** Numero massimo di eventi prima di fermare gli arrivi. */
     private int maxEvents;
 
-    /**
-     * Special constant used in routing matrices to indicate job exit.
-     */
+    /** Costante per indicare l'uscita dal sistema. */
     public static final String EXIT = "EXIT";
 
-    /**
-     * Random number generator set for the simulation.
-     */
+    /** RNG per la simulazione. */
     private Rngs rngs = new Rngs();
 
-    /**
-     * Initial Arrival Events in the system
-     */
+    /** Numero di arrival event iniziali nello scheduler. */
     private int initialArrival = 0;
 
-    /**
-     * the seeds for the simulation
-     */
-    private List<Integer> seeds = new ArrayList<>(Arrays.asList(314159265, 271828183, 141421357,
-            1732584193, 123456789));
+    /** Semi della simulazione. */
+    private List<Integer> seeds = new ArrayList<>(Arrays.asList(
+            314159265, 271828183, 141421357, 1732584193, 123456789
+    ));
 
-
-    // in SimulationConfig.java
+    // --- Esistente per modalità LOAD_BALANCE ---
     private Map<String, Map<String, java.util.List<TargetClass>>> routingMatrixLB;
-    // inside SimulationConfig.java
     private SimulationType simulationType = SimulationType.NORMAL;
-    private Balancing balancing = Balancing.RR;   // used only if simulationType == LOAD_BALANCE
+    private Balancing balancing = Balancing.RR;   // usato solo se simulationType == LOAD_BALANCE
 
     private int batchLength = -1;
     private int maxBatches = -1;
 
+    // =========================
+    // Nuovi campi per routing probabilistico
+    // =========================
+
+    /** Modalità di routing: "probabilistic" oppure assente ⇒ deterministico. */
+    private String routingMode; // opzionale, può non esserci nel JSON
+
     /**
-     * @return the external arrival rate λ
+     * Tabella di routing probabilistico:
+     * node → (classId → lista di ProbArc).
+     * Nota: classId è Integer per semplicità di confronto aritmetico.
      */
+    private Map<String, Map<Integer, List<ProbArc>>> probRoutingTable;
+
+    /** Parametro di safety per evitare loop infiniti (opzionale). */
+    private Integer safetyMaxHops;
+
+    // =========================
+
+    /** @return tasso di arrivo esterno λ (iterando la lista se multipla). */
     public double getArrivalRate() {
         int index = ARRIVAL_RATE_INDEX.getAndIncrement();
         if (index >= arrivalRate.size()) {
@@ -101,78 +106,43 @@ public class SimulationConfig {
     public int getNumArrivals(){
         return arrivalRate.size();
     }
+
     public String getArrivalRates() {
         return this.arrivalRate.toString();
     }
-    /**
-     * @return the service rates map (node → class → mean service time)
-     */
+
     public Map<String, Map<String, Double>> getServiceRates() {
         return serviceRates;
     }
 
-    /**
-     * @return the routing matrix (node → class → {@link TargetClass})
-     */
     public Map<String, Map<String, TargetClass>> getRoutingMatrix() {
         return routingMatrix;
     }
 
-    /**
-     * @return the maximum number of events before arrivals stop
-     */
     public int getMaxEvents() {
         return maxEvents;
     }
 
-    /**
-     * Sets the external arrival rate λ.
-     *
-     * @param arrivalRate the arrival rate in jobs per unit time
-     */
     public void setArrivalRate(List<Double> arrivalRate) {
         this.arrivalRate = arrivalRate;
     }
 
-    /**
-     * Sets the service rates for the network.
-     *
-     * @param serviceRates a map node → class → mean service time
-     */
     public void setServiceRates(Map<String, Map<String, Double>> serviceRates) {
         this.serviceRates = serviceRates;
     }
 
-    /**
-     * Sets the routing matrix.
-     *
-     * @param routingMatrix a map node → class → {@link TargetClass}
-     */
     public void setRoutingMatrix(Map<String, Map<String, TargetClass>> routingMatrix) {
         this.routingMatrix = routingMatrix;
     }
 
-    /**
-     * Sets the maximum number of events before stopping arrivals.
-     *
-     * @param maxEvents the maximum event count
-     */
     public void setMaxEvents(int maxEvents) {
         this.maxEvents = maxEvents;
     }
 
-    /**
-     * @return the RNG set used for this simulation
-     */
     public Rngs getRngs() {
         return rngs;
     }
 
-    /**
-     * Sets the RNG set to be used in the simulation.
-     *
-     * @param rngs the RNG instance
-     */
     public void setRngs(Rngs rngs) {
         this.rngs = rngs;
     }
@@ -193,10 +163,6 @@ public class SimulationConfig {
         this.seeds = seeds;
     }
 
-    /**
-     * @return a string representation of the configuration for debugging
-     */
-
     public Map<String, Map<String, java.util.List<TargetClass>>> getRoutingMatrixLB() {
         return routingMatrixLB;
     }
@@ -209,16 +175,40 @@ public class SimulationConfig {
     public void setSimulationType(SimulationType simulationType) { this.simulationType = simulationType; }
     public Balancing getBalancing() { return balancing; }
     public void setBalancing(Balancing balancing) { this.balancing = balancing; }
+
+    // =========================
+    // Getter/Setter nuovi campi
+    // =========================
+
+    /** Ritorna la stringa della modalità (può essere null). */
+    public String getRoutingMode() { return routingMode; }
+    public void setRoutingMode(String routingMode) { this.routingMode = routingMode; }
+
+    public Map<String, Map<Integer, List<ProbArc>>> getProbRoutingTable() { return probRoutingTable; }
+    public void setProbRoutingTable(Map<String, Map<Integer, List<ProbArc>>> probRoutingTable) {
+        this.probRoutingTable = probRoutingTable;
+    }
+
+    public Integer getSafetyMaxHops() { return safetyMaxHops; }
+    public void setSafetyMaxHops(Integer safetyMaxHops) { this.safetyMaxHops = safetyMaxHops; }
+
+    /** Comodità: true se il config è probabilistico (per modalità o per presenza tabella). */
+    public boolean isProbabilistic() {
+        return (routingMode != null && "probabilistic".equalsIgnoreCase(routingMode))
+                || (probRoutingTable != null && !probRoutingTable.isEmpty());
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("{\n\t");
         if (simulationType.equals(SimulationType.LOAD_BALANCE)) {
             routingMatrixLB.keySet().stream().sorted().forEach(
-                key -> sb.append(key).append("=").append(routingMatrixLB.get(key)).append("\n\t"));
-
-        } else {
+                    key -> sb.append(key).append("=").append(routingMatrixLB.get(key)).append("\n\t"));
+        } else if (routingMatrix != null) {
             routingMatrix.keySet().stream().sorted().forEach(
                     key -> sb.append(key).append("=").append(routingMatrix.get(key)).append("\n\t"));
+        } else {
+            sb.append("routingMatrix=").append("null").append("\n\t");
         }
         sb.append('}');
 
@@ -226,6 +216,16 @@ public class SimulationConfig {
             sb.append("\n\t").append("Batch Length: ").append(batchLength);
             sb.append("\n\t").append("Max Batches: ").append(maxBatches);
         }
+
+        // Append info di routing probabilistico se presenti
+        if (isProbabilistic()) {
+            sb.append("\n\t").append("routingMode=").append(routingMode != null ? routingMode : "probabilistic(auto)");
+            sb.append("\n\t").append("probRouting=").append(probRoutingTable != null ? "present" : "null");
+            if (safetyMaxHops != null) {
+                sb.append("\n\t").append("safetyMaxHops=").append(safetyMaxHops);
+            }
+        }
+
         return "SimulationConfig={" +
                 "\narrivalRate=" + arrivalRate +
                 "\n, serviceRates=" + serviceRates +
@@ -238,7 +238,6 @@ public class SimulationConfig {
                 (simulationType.equals(SimulationType.LOAD_BALANCE) ? "\n, balancing=" + balancing : "") +
                 "\n}";
     }
-
 
     public int getBatchLength() {
         return this.batchLength;

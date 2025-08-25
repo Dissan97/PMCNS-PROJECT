@@ -26,14 +26,14 @@ public class SinkToCsv {
     public SinkToCsv(int seed) {
         String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
 
-        // Get only the base name of the config file (remove directories)
+        // Prende solo il nome base del file di config (senza directory)
         Path cfgPath = Path.of(getCfgPath());
         String cfgBaseName = cfgPath.getFileName().toString().replace(".json", "");
 
         int dot = cfgBaseName.lastIndexOf('.');
         String cfgStem = (dot > 0 ? cfgBaseName.substring(0, dot) : cfgBaseName);
 
-        // Build file name under OUT_DIR only
+        // Costruisce il nome del file sotto OUT_DIR
         String fileName = String.format("results_%s_run%03d_seed%s_%s.csv",
                 cfgStem, Simulation.SIMULATION_COUNTER.get(), seed, ts);
 
@@ -54,8 +54,10 @@ public class SinkToCsv {
     public void lineRecord() {
         StringBuilder stringBuilder = new StringBuilder();
 
+        // Se un campo non è stato scritto, usa "-" per evitare "null"
         for (var header : CsvHeader.values()) {
-            stringBuilder.append(records.get(header)).append(',');
+            String v = records.getOrDefault(header, "-");
+            stringBuilder.append(v).append(',');
         }
         stringBuilder.replace(stringBuilder.length() - 1, stringBuilder.length(), "\n");
 
@@ -82,6 +84,7 @@ public class SinkToCsv {
     }
 
     public enum CsvHeader {
+        // Campi esistenti
         SCOPE,
         ARRIVAL_RATE,
         MEAN_RESPONSE_TIME,
@@ -91,7 +94,12 @@ public class SinkToCsv {
         THROUGHPUT,
         UTILIZATION,
         STD_RESPONSE_TIME_COV,
-        STD_POPULATION_COV;
+        STD_POPULATION_COV,
+        // --- NEW: campi per routing probabilistico / modalità routing ---
+        ROUTING_MODE,        // "deterministic" | "probabilistic"
+        PATH_AB,             // conteggio job che escono subito dopo B
+        PATH_ABAPA,          // conteggio job che compiono ABAPA
+        PATH_ABAB_FORCED;    // conteggio job chiusi per max_hops (loop forzato)
 
         public String getName() {
             return this.name().toLowerCase(Locale.ROOT);

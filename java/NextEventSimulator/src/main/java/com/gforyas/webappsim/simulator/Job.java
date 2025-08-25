@@ -49,6 +49,8 @@ public final class Job {
      */
     private double remainingService;
 
+    private String route;
+
     /**
      * Creates a new job with the given parameters.
      *
@@ -128,6 +130,12 @@ public final class Job {
                 id, jobClass, arrivalTime, remainingService);
     }
 
+    public String getRoute() {
+        return route;
+    }
+    public void setRoute(String route) {
+        this.route = route;
+    }
     /**
      * Resets the global job counter.
      * <p>
