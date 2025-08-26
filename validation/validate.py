@@ -8,6 +8,17 @@
 #
 # Nota: aggiorniamo SOLO 'std_response_time' analitico usando
 # covarianze empiriche dai per-job (se disponibili).
+
+#   python validation\validate.py 1.2 config_obj1.json       .output_simulation\results_obj1_run*.csv
+#   python validation\validate.py 1.2 config_obj1.json       .output_simulation\results_obj1_run*.csv
+#   python validation\validate.py 1.2 config_obj1.json       .output_simulation\results_obj1_run*.csv
+
+
+#linux
+#   python validation/validate.py 1.2 config_obj1.json       .output_simulation/results_obj1_run*.csv
+#   python validation/validate.py 1.2 config_obj1.json       .output_simulation/results_obj1_run*.csv
+#   python validation/validate.py 1.2 config_obj1.json       .output_simulation/results_obj1_run*.csv
+
 # --------------------------------------------------------------
 
 import sys
