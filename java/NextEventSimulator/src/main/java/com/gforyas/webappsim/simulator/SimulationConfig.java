@@ -270,4 +270,5 @@ public class SimulationConfig {
     public void setSinkConv(SinkConvergenceToCsv sinkConv) {
         this.sinkConv = sinkConv;
     }
+
 }

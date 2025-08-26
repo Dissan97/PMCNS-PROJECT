@@ -156,4 +156,8 @@ public class App {
     public static String getCfgPath() {
         return cfgPath;
     }
+
+    public static void setCfgPath(String cfgPath) {
+        App.cfgPath = cfgPath;
+    }
 }

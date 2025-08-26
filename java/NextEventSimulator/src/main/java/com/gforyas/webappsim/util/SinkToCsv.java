@@ -47,6 +47,30 @@ public class SinkToCsv {
         }
     }
 
+    public SinkToCsv(int seed, double prob) {
+        String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+
+        // Prende solo il nome base del file di config (senza directory)
+        Path cfgPath = Path.of(getCfgPath());
+        String cfgBaseName = cfgPath.getFileName().toString().replace(".json", "");
+
+        int dot = cfgBaseName.lastIndexOf('.');
+        String cfgStem = (dot > 0 ? cfgBaseName.substring(0, dot) : cfgBaseName);
+
+        // Costruisce il nome del file sotto OUT_DIR
+        String fileName = String.format("results_%s_run%03d_seed%s_prob%s_%s.csv",
+                cfgStem, Simulation.SIMULATION_COUNTER.get(), seed, prob, ts);
+
+        this.outputPath = OUT_DIR.resolve(fileName);
+
+        try {
+            Files.createDirectories(OUT_DIR);
+        } catch (IOException e) {
+            String severe = "issue in creating dir " + e.getMessage();
+            SysLogger.getInstance().getLogger().severe(severe);
+        }
+    }
+
     public void appendRecord(CsvHeader header, String value) {
         records.put(header, value);
     }
