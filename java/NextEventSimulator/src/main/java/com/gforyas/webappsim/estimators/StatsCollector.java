@@ -184,6 +184,7 @@ public class StatsCollector {
                 sinkConvergence.appendConvRecord(
                         SinkConvergenceToCsv.CsvHeaderConv.NUM_DEPARTURES, String.valueOf(departures)
                 );
+                sinkConvergence.appendConvRecord(SinkConvergenceToCsv.CsvHeaderConv.ARRIVAL_RATE, String.valueOf(arrivalRate));
                 sinkConvergence.lineConvRecord();
 
             } else {
@@ -202,6 +203,7 @@ public class StatsCollector {
                 sinkConvergence.appendConvRecord(
                         SinkConvergenceToCsv.CsvHeaderConv.NUM_DEPARTURES, String.valueOf(departures)
                 );
+                sinkConvergence.appendConvRecord(SinkConvergenceToCsv.CsvHeaderConv.ARRIVAL_RATE, String.valueOf(arrivalRate));
                 sinkConvergence.lineConvRecord();
             }
         }

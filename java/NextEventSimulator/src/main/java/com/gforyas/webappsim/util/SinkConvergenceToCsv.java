@@ -82,7 +82,7 @@ public class SinkConvergenceToCsv extends SinkToCsv {
         SCOPE,
         METRIC,
         VALUE,
-        NUM_DEPARTURES;
+        NUM_DEPARTURES, ARRIVAL_RATE;
 
         public String getName() {
             return this.name().toLowerCase(Locale.ROOT);
