@@ -11,7 +11,6 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.logging.Logger;
 
 /**
@@ -26,7 +25,7 @@ import java.util.logging.Logger;
  * </ul>
  * The simulation is executed using the configuration loaded from the selected or provided JSON file.
  */
-public class PVar {
+public class PVarLoop {
 
     private static double minP = 0.0;
     private static double maxP = 1.0;
@@ -59,7 +58,7 @@ public class PVar {
         // Initialize RNG
         Rngs rngs = new Rngs();
         // Load config from a path
-        URL url = SimulationConfig.class.getResource("obj4_p_var.json");
+        URL url = SimulationConfig.class.getResource("obj4_p_var_loop.json");
         Path p = Paths.get(url.toURI());
         App.setCfgPath(p.toString());
         SimulationConfig config = ConfigParser.getConfig(p.getFileName().toString());
@@ -71,8 +70,8 @@ public class PVar {
         LOGGER.info(info);
         for (var seed : config.getSeeds()) {
             for (var prob = minP; prob <= maxP; prob+=stepP) {
-                config.getProbRoutingTable().get("B").get(1).get(0).setP(prob);
-                config.getProbRoutingTable().get("B").get(1).get(1).setP(1-prob);
+                config.getProbRoutingTable().get("A").get(2).get(0).setP(prob);
+                config.getProbRoutingTable().get("A").get(2).get(1).setP(1-prob);
                 SinkToCsv sink = new SinkToCsv(seed, prob);
                 SinkConvergenceToCsv convergenceToCsv = new SinkConvergenceToCsv(seed, prob);
                 config.setSink(sink);
