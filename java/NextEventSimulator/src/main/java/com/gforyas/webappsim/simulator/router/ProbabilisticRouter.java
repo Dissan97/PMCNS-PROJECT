@@ -113,7 +113,7 @@ public class ProbabilisticRouter implements Router {
                     cum[i] = sum;
                 }
                 // Validazione lieve: il parser già garantisce Σp≈1, qui allineiamo l'ultimo a 1.0
-                if (Math.abs(sum - 1.0) > TOL) {
+                if (Math.abs(sum - 1.0) >= 0) {
                     SysLogger.getInstance().getLogger()
                             .warning(String.format(Locale.ROOT,
                                     "ProbabilisticRouter: Σp=%.12f per (%s, class=%d). " +

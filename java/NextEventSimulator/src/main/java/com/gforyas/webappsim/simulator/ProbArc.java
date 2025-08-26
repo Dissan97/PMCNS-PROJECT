@@ -9,7 +9,7 @@ package com.gforyas.webappsim.simulator;
 public final class ProbArc {
     private final String target;
     private final Integer nextClass; // null ammesso solo per EXIT
-    private final double p;
+    private double p;
 
     public ProbArc(String target, Integer nextClass, double p) {
         this.target = target;
@@ -27,6 +27,9 @@ public final class ProbArc {
 
     public double getP() {
         return p;
+    }
+    public void setP(double p) {
+        this.p = p;
     }
 
     @Override

@@ -367,6 +367,7 @@ public class ConfigParser {
             if (config.getRoutingMode() == null) {
                 config.setRoutingMode("probabilistic");
             }
+            System.out.println(probTable);
             config.setProbRoutingTable(probTable);
         }
     }
