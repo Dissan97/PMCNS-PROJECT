@@ -287,17 +287,29 @@ def analytic_metrics(cfg: dict, gamma: float) -> dict:
     S = _parse_service_times(cfg)
 
     # ---- 2) p e domande aggregate per nodo fisico --------------------------------
+    # ---- 2) p e domande aggregate per nodo fisico --------------------------------
+    # default deterministico (nessun loop)
     p = 1.0
+    E_B = 1.0
+    E_A2 = 1.0
+
     if _is_probabilistic_cfg(cfg):
         try:
-            p = _extract_p_abapa(cfg)
+            q, r, p, E_B, E_A2 = _extract_loop_params(cfg)
         except Exception:
-            p = 1.0  # fallback conservativo
+            # fallback: se so solo p uso il vecchio schema (compat)
+            try:
+                p = _extract_p_abapa(cfg)
+            except Exception:
+                p = 1.0
+            E_B = 1.0
+            E_A2 = p  # se non conosco q, r, assumo una sola visita ad A2 quando passo da P
 
-    # Domande per nodo
-    D_A = S[("A", 1)] + p * (S[("A", 2)] + S[("A", 3)])
-    D_B = S[("B", 1)]
+    # Domande per nodo (generale, copre anche il caso senza loop: r=1 => E_B=1, E_A2=q=p)
+    D_A = S[("A", 1)] + E_A2 * S[("A", 2)] + p * S[("A", 3)]
+    D_B = E_B * S[("B", 1)]
     D_P = p * S[("P", 2)]
+
 
     # ---- 3) Throughput esterno e utilizzi ---------------------------------------
     X = float(gamma)
@@ -431,3 +443,40 @@ def _read_covariances_generic(cfg: dict, key_cov: str, key_corr: str, stds: Dict
         else:
             out[key] = 0.0
     return out
+
+
+
+def _extract_loop_params(cfg: dict):
+    """
+    Restituisce (q, r, p, E_B, E_A2) dove:
+      q = P(B,1 -> A,2)
+      r = P(A,2 -> P, *)
+      p = prob. di visitare P prima dell'EXIT con loop B<->A2
+      E_B  = visite attese a B
+      E_A2 = visite attese ad A2
+    Richiede una tabella probabilistica (prob_routing o routing_matrix).
+    """
+    pr, keyname = _get_prob_table(cfg)
+    if pr is None or not isinstance(pr, dict):
+        raise KeyError("Config probabilistico senza tabella ('prob_routing' o 'routing_matrix').")
+
+    B_map = pr.get("B") or pr.get("b") or {}
+    trans_B1 = B_map.get("1") or B_map.get(1) or []
+    q = _sum_trans_prob(trans_B1, target_server="A", event_class=2)
+
+    A_map = pr.get("A") or pr.get("a") or {}
+    trans_A2 = A_map.get("2") or A_map.get(2) or []
+    r = _sum_trans_prob(trans_A2, target_server="P", event_class=None)
+
+    if not (0.0 <= q <= 1.0 and 0.0 <= r <= 1.0):
+        raise ValueError(f"q={q}, r={r}: probabilità fuori da [0,1].")
+
+    Z = 1.0 - q * (1.0 - r)
+    if Z <= 0.0:
+        # loop assorbente: niente EXIT e p=0 di raggiungere P
+        return q, r, 0.0, float("inf"), float("inf")
+
+    p = (q * r) / Z
+    E_B  = 1.0 / Z
+    E_A2 = q   / Z
+    return q, r, p, E_B, E_A2
