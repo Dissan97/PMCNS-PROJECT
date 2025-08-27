@@ -20,7 +20,7 @@ public class SinkToCsv {
 
     public static final Path OUT_DIR = Path.of(".output_simulation");
     private final EnumMap<CsvHeader, String> records = new EnumMap<>(CsvHeader.class);
-    protected final List<String> lines = new ArrayList<>();
+    protected List<String> lines = new ArrayList<>();
     protected Path outputPath;
 
     public SinkToCsv(int seed) {

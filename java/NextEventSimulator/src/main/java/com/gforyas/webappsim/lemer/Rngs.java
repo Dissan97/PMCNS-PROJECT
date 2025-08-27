@@ -50,7 +50,7 @@ public class Rngs extends Rng{
   public static final AtomicInteger STREAM_ID = new AtomicInteger(0);
 
   public static int getStreamId() {
-    return STREAM_ID.getAndIncrement();
+    return STREAM_ID.getAndIncrement() % STREAMS;
   }
   public static void resetStreamId() {
     STREAM_ID.set(0);
@@ -58,7 +58,7 @@ public class Rngs extends Rng{
 
   private static final Logger LOGGER = SysLogger.getInstance().getLogger();
 
-  int STREAMS       = 256;        /* # of streams, DON'T CHANGE THIS VALUE    */
+  static int STREAMS       = 256;        /* # of streams, DON'T CHANGE THIS VALUE    */
   long A256         = 22925;      /* jump multiplier, DON'T CHANGE THIS VALUE */
 
   /* Barry Lawson 8 Nov 2007 */

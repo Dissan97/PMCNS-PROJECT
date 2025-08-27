@@ -1,6 +1,7 @@
 package com.gforyas.webappsim.simulator;
 
 import com.gforyas.webappsim.lemer.Rngs;
+import com.gforyas.webappsim.simulator.arrivals.ArrivalGenerator;
 
 public class HyperExpArrGen extends ArrivalGenerator {
 

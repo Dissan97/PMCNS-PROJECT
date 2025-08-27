@@ -1,7 +1,10 @@
-package com.gforyas.webappsim.simulator;
+package com.gforyas.webappsim.simulator.arrivals;
 
 import com.gforyas.webappsim.lemer.Rngs;
 import com.gforyas.webappsim.lemer.Rvms;
+import com.gforyas.webappsim.simulator.BootstrapEvent;
+import com.gforyas.webappsim.simulator.Event;
+import com.gforyas.webappsim.simulator.NextEventScheduler;
 
 /**
  * Generates external arrivals for the simulation using a Poisson process.

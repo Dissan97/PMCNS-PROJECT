@@ -4,6 +4,7 @@ import com.gforyas.webappsim.estimators.StatsCollector;
 import com.gforyas.webappsim.lemer.Rngs;
 import com.gforyas.webappsim.lemer.Rvms;
 import com.gforyas.webappsim.logging.SysLogger;
+import com.gforyas.webappsim.simulator.arrivals.ArrivalGenerator;
 import com.gforyas.webappsim.simulator.router.DeterministicRouter;
 import com.gforyas.webappsim.simulator.router.ProbabilisticRouter;
 import com.gforyas.webappsim.simulator.router.Router;
@@ -25,33 +26,33 @@ public class Simulation {
     private static final Rvms RVMS = Rvms.getInstance();
 
     // --- NEW: router strategy (deterministico o probabilistico) ---
-    private final Router router;
+    protected Router router;
 
     // --- esistente ---
-    protected final Map<String, Map<String, TargetClass>> routingMatrix;
-    protected final int maxEvents;
+    protected Map<String, Map<String, TargetClass>> routingMatrix;
+    protected int maxEvents;
     protected final NextEventScheduler scheduler = new NextEventScheduler();
-    protected final Network network;
-    protected final Rngs rng;
-    private final ArrivalGenerator arrivalGenerator;
+    protected Network network;
+    protected Rngs rng;
+    protected ArrivalGenerator arrivalGenerator;
 
     protected int totalExternalArrivals = 0;
     protected int totalCompletedJobs = 0;
     protected boolean arrivalsStopped = false;
 
-    protected final StatsCollector statsCollector;
+    protected StatsCollector statsCollector;
 
     /** Soglia di completamenti (EXIT) per terminare il warm-up. */
-    protected final int warmupCompletions;
+    protected int warmupCompletions;
 
     /** True quando abbiamo iniziato a misurare (post warm-up). */
     protected boolean measuring = false;
 
     // --- NEW: safety max hops (solo prob.) ---
-    private final Integer safetyMaxHops;
+    protected Integer safetyMaxHops;
 
     // --- NEW: tracking percorsi SOLO in probabilistico ---
-    private final Map<Integer, PathTracker> pathTrackers; // jobId -> tracker
+    protected Map<Integer, PathTracker> pathTrackers; // jobId -> tracker
     private int countAB = 0;
     private int countABAPA = 0;
     private int countABABForced = 0;
@@ -91,6 +92,9 @@ public class Simulation {
             measuring = true;
             SysLogger.getInstance().getLogger().info("Warm-up disattivato: misura avviata subito.");
         }
+    }
+
+    public Simulation(){
     }
 
     protected void generateBootstrap(SimulationConfig config) {

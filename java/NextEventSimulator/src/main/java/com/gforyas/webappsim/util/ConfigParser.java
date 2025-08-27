@@ -57,8 +57,7 @@ public class ConfigParser {
                 try (JarFile jar = new JarFile(jarPath)) {
                     jar.stream()
                             .map(JarEntry::getName)
-                            .filter(n -> n.startsWith(basePath) && n.endsWith(".json"))
-                            .map(n -> n.substring(basePath.length()))
+                            .filter(n -> n.endsWith(".json"))
                             .forEach(result::add);
                 }
             } else {
