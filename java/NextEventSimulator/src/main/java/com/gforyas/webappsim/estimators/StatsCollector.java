@@ -212,7 +212,7 @@ public class StatsCollector {
     private double convergenceOverall(NextEventScheduler scheduler, Pair<String, String> pair) {
         double result = 0.0;
         switch (pair.getRight()) {
-            case MEAN_RESPONSE_TIME -> result = rt.welfordEstimator.getMean();
+            case MEAN_RESPONSE_TIME -> result = calculateOverallRtByVisits();
             case STD_RESPONSE_TIME -> result = rt.welfordEstimator.getStddev();
             case MEAN_POPULATION -> result = pop.getMean();
             case STD_POPULATION -> result = pop.getStd();
@@ -235,6 +235,7 @@ public class StatsCollector {
         switch (pair.getRight()) {
             case MEAN_RESPONSE_TIME ->
                     result = rtNode.get(pair.getLeft()).welfordEstimator.getMean();
+                    
             case STD_RESPONSE_TIME ->
                     result = rtNode.get(pair.getLeft()).welfordEstimator.getStddev();
             case MEAN_POPULATION ->
