@@ -119,6 +119,7 @@ public class App {
         Scanner scanner = new Scanner(System.in);
         List<String> configs = ConfigParser.getDefaultConfigs();
         StringBuilder builder = new StringBuilder("Select configuration:\n");
+        configs = configs.stream().sorted().toList();
         for (int i = 0; i < configs.size(); i++) {
             builder.append(i+1).append(") ").append(configs.get(i)).append("\n");
         }

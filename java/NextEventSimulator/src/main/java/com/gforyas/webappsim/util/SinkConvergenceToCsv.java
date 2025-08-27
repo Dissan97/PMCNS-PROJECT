@@ -62,6 +62,28 @@ public class SinkConvergenceToCsv extends SinkToCsv {
         }
     }
 
+
+    public SinkConvergenceToCsv(int seed, double service, int nothing) {
+        super(seed);
+        Path cfgPath = Path.of(getCfgPath());
+        String cfgBaseName = cfgPath.getFileName().toString().replace(".json", "");
+
+        int dot = cfgBaseName.lastIndexOf('.');
+        String cfgStem = (dot > 0 ? cfgBaseName.substring(0, dot) : cfgBaseName);
+        // Cambiamo il nome file per distinguerlo
+        String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+        String fileName = String.format("conv_%s_run%03d_seed%s_service%s_%s.csv",
+                cfgStem, Simulation.SIMULATION_COUNTER.get(), seed, service, ts);
+
+        this.outputPath = OUT_DIR.resolve(fileName);
+        try {
+            java.nio.file.Files.createDirectories(OUT_DIR);
+        } catch (IOException e) {
+            String severe = "issue in creating convergence dir " + e.getMessage();
+            SysLogger.getInstance().getLogger().severe(severe);
+        }
+    }
+
     /** Append a record for convergence with new header set. */
     public void appendConvRecord(CsvHeaderConv header, String value) {
         convRecords.put(header, value);
