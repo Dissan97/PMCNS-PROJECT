@@ -19,6 +19,6 @@
       "2": {"target": "A", "class": "3"}
     }
   },
-  "max_events": 10000,
-  "warmup_completions": 10000
+  "max_events": 10000000,
+  "warmup_completions": 0
 }
