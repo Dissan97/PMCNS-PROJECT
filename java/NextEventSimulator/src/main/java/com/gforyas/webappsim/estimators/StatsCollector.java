@@ -17,26 +17,39 @@ import java.util.*;
 import static com.gforyas.webappsim.util.SinkToCsv.OUT_DIR;
 
 /**
- * <p><strong>Scopo.</strong> Questa facade orchestra stimatori globali e per-nodo
- * per calcolare e riportare metriche di performance della rete simulata.</p>
+ * <p>
+ * <strong>Scopo.</strong> Questa facade orchestra stimatori globali e per-nodo
+ * per calcolare e riportare metriche di performance della rete simulata.
+ * </p>
  *
- * <p><strong>Funzionalità.</strong></p>
+ * <p>
+ * <strong>Funzionalità.</strong>
+ * </p>
  * <ul>
- *   <li>Stimatori globali: tempo di risposta end-to-end, popolazione pesata nel tempo,
- *       completamenti di sistema, finestra di osservazione e busy time globale.</li>
- *   <li>Stimatori per nodo: tempo di risposta, popolazione pesata nel tempo, partenze e busy time.</li>
- *   <li>Per i nodi <code>A</code>, <code>B</code> e <code>P</code> usa una variante
- *       {@link ResponseTimeEstimatorNode} con aggregazione per-job.</li>
- *   <li>Un {@link ResponseTimePerJobCollector} cattura tempi per-job
- *       (T<sub>A</sub>, T<sub>B</sub>, T<sub>P</sub>, T<sub>total</sub>) e conserva campioni
- *       per stime empiriche di varianza/covarianza.</li>
- *   <li>Esporta metriche addizionali basate su covarianze
- *       (<code>std_response_time_cov</code>, <code>std_population_cov</code>) nel CSV.</li>
+ * <li>Stimatori globali: tempo di risposta end-to-end, popolazione pesata nel
+ * tempo,
+ * completamenti di sistema, finestra di osservazione e busy time globale.</li>
+ * <li>Stimatori per nodo: tempo di risposta, popolazione pesata nel tempo,
+ * partenze e busy time.</li>
+ * <li>Per i nodi <code>A</code>, <code>B</code> e <code>P</code> usa una
+ * variante
+ * {@link ResponseTimeEstimatorNode} con aggregazione per-job.</li>
+ * <li>Un {@link ResponseTimePerJobCollector} cattura tempi per-job
+ * (T<sub>A</sub>, T<sub>B</sub>, T<sub>P</sub>, T<sub>total</sub>) e conserva
+ * campioni
+ * per stime empiriche di varianza/covarianza.</li>
+ * <li>Esporta metriche addizionali basate su covarianze
+ * (<code>std_response_time_cov</code>, <code>std_population_cov</code>) nel
+ * CSV.</li>
  * </ul>
  *
- * <p><strong>Integrazione.</strong> Istanziato con network, scheduler, matrice di routing e config.
- * Collega gli stimatori, e fornisce utility per aprire la misura, finalizzare le grandezze
- * time-weighted, loggare tabelle ASCII e scrivere CSV di riepilogo.</p>
+ * <p>
+ * <strong>Integrazione.</strong> Istanziato con network, scheduler, matrice di
+ * routing e config.
+ * Collega gli stimatori, e fornisce utility per aprire la misura, finalizzare
+ * le grandezze
+ * time-weighted, loggare tabelle ASCII e scrivere CSV di riepilogo.
+ * </p>
  */
 public class StatsCollector {
 
@@ -60,11 +73,11 @@ public class StatsCollector {
     public static final String OVERALL = "OVERALL";
 
     // --- Stimatori globali ---
-    private final ResponseTimeEstimator rt;   // end-to-end (ARRIVAL esterno -> EXIT)
-    private final PopulationEstimator pop;    // popolazione pesata nel tempo (traccia jobId)
-    private final CompletionsEstimator comp;  // completamenti a EXIT
+    private final ResponseTimeEstimator rt; // end-to-end (ARRIVAL esterno -> EXIT)
+    private final PopulationEstimator pop; // popolazione pesata nel tempo (traccia jobId)
+    private final CompletionsEstimator comp; // completamenti a EXIT
     private final ObservationTimeEstimator ot; // finestra osservata
-    private final BusyTimeEstimator busy;     // busy time globale
+    private final BusyTimeEstimator busy; // busy time globale
 
     // --- Stimatori per nodo ---
     private final Map<String, ResponseTimeEstimatorNode> rtNode = new HashMap<>();
@@ -81,9 +94,22 @@ public class StatsCollector {
     // --- Convergenze ---
     private Map<Pair<String, String>, Double> convergence = new HashMap<>();
     private static final int EVENT_COUNT = 1000;
+    private static int LIMIT = 100;
+    private int times = 0;
+    private boolean initial = true;
     private int counter = 0;
     private final SinkToCsv sink;
     private SinkConvergenceToCsv sinkConvergence;
+
+    // Parametri tempo
+    private static final double EARLY_TMAX_S = 60.0; // primi 60 s
+    private static final double EARLY_DT_S = 1.0; // 1 punto/s nei primi 60 s
+    private static final double LATE_DT_S = 400.0; // poi ogni 400 s
+    private static final int LATE_EVERY_EVENTS = 1000; // fallback
+
+    // Stato
+    private double lastEmitTime = Double.NaN;
+    private int eventsSinceLastEmit = 0;
 
     // --- NEW: metadati/metriche routing ---
     // Abilitazione export metriche di percorso (solo in probabilistico)
@@ -99,9 +125,9 @@ public class StatsCollector {
      * Crea la facade e registra tutti gli stimatori/collector.
      */
     public StatsCollector(Network network,
-                          NextEventScheduler scheduler,
-                          Map<String, Map<String, TargetClass>> routingMatrix,
-                          SimulationConfig cfg, double arrivalRate) {
+            NextEventScheduler scheduler,
+            Map<String, Map<String, TargetClass>> routingMatrix,
+            SimulationConfig cfg, double arrivalRate) {
 
         // Global
         this.rt = new ResponseTimeEstimator(scheduler, routingMatrix);
@@ -159,11 +185,25 @@ public class StatsCollector {
     }
 
     private void updateConvergence(Event event, NextEventScheduler scheduler) {
-        if (counter != EVENT_COUNT) {
-            counter++;
-            return;
+        double now = scheduler.getCurrentTime();
+
+        // Decidi il passo target in base all'epoca (early vs late)
+        double targetDt = (now <= EARLY_TMAX_S) ? EARLY_DT_S : LATE_DT_S;
+
+        // Due condizioni per emettere: o è passato abbastanza TEMPO, o sono passati
+        // abbastanza EVENTI (fallback)
+        boolean dueByTime = Double.isNaN(lastEmitTime) || (now - lastEmitTime) >= targetDt;
+        boolean dueByEvent = (++eventsSinceLastEmit) >= LATE_EVERY_EVENTS;
+
+        if (!(dueByTime || dueByEvent)) {
+            return; // non ancora ora di scrivere
         }
-        counter = 0;
+
+        // reset contatori di gating
+        lastEmitTime = now;
+        eventsSinceLastEmit = 0;
+
+        // === Tuo blocco di emissione invariato ===
         Set<Pair<String, String>> pairs = this.convergence.keySet();
 
         for (var pair : pairs) {
@@ -172,38 +212,28 @@ public class StatsCollector {
                 value = convergenceOverall(scheduler, pair);
                 long departures = comp.getCountSinceStart();
 
-                sinkConvergence.appendConvRecord(
-                        SinkConvergenceToCsv.CsvHeaderConv.SCOPE, OVERALL
-                );
-                sinkConvergence.appendConvRecord(
-                        SinkConvergenceToCsv.CsvHeaderConv.METRIC, pair.getRight()
-                );
-                sinkConvergence.appendConvRecord(
-                        SinkConvergenceToCsv.CsvHeaderConv.VALUE, fmt(value)
-                );
-                sinkConvergence.appendConvRecord(
-                        SinkConvergenceToCsv.CsvHeaderConv.NUM_DEPARTURES, String.valueOf(departures)
-                );
-                sinkConvergence.appendConvRecord(SinkConvergenceToCsv.CsvHeaderConv.ARRIVAL_RATE, String.valueOf(arrivalRate));
+                sinkConvergence.appendConvRecord(SinkConvergenceToCsv.CsvHeaderConv.SCOPE, OVERALL);
+                sinkConvergence.appendConvRecord(SinkConvergenceToCsv.CsvHeaderConv.METRIC, pair.getRight());
+                sinkConvergence.appendConvRecord(SinkConvergenceToCsv.CsvHeaderConv.VALUE, fmt(value));
+                sinkConvergence.appendConvRecord(SinkConvergenceToCsv.CsvHeaderConv.NUM_DEPARTURES,
+                        String.valueOf(departures));
+                sinkConvergence.appendConvRecord(SinkConvergenceToCsv.CsvHeaderConv.ARRIVAL_RATE,
+                        String.valueOf(arrivalRate));
+                sinkConvergence.appendConvRecord(SinkConvergenceToCsv.CsvHeaderConv.TIME, fmt(now));
                 sinkConvergence.lineConvRecord();
 
             } else {
                 value = convergencePerNode(scheduler, pair);
                 long departures = compNode.get(pair.getLeft()).getCountSinceStart();
 
-                sinkConvergence.appendConvRecord(
-                        SinkConvergenceToCsv.CsvHeaderConv.SCOPE, "NODE_" + pair.getLeft()
-                );
-                sinkConvergence.appendConvRecord(
-                        SinkConvergenceToCsv.CsvHeaderConv.METRIC, pair.getRight()
-                );
-                sinkConvergence.appendConvRecord(
-                        SinkConvergenceToCsv.CsvHeaderConv.VALUE, fmt(value)
-                );
-                sinkConvergence.appendConvRecord(
-                        SinkConvergenceToCsv.CsvHeaderConv.NUM_DEPARTURES, String.valueOf(departures)
-                );
-                sinkConvergence.appendConvRecord(SinkConvergenceToCsv.CsvHeaderConv.ARRIVAL_RATE, String.valueOf(arrivalRate));
+                sinkConvergence.appendConvRecord(SinkConvergenceToCsv.CsvHeaderConv.SCOPE, "NODE_" + pair.getLeft());
+                sinkConvergence.appendConvRecord(SinkConvergenceToCsv.CsvHeaderConv.METRIC, pair.getRight());
+                sinkConvergence.appendConvRecord(SinkConvergenceToCsv.CsvHeaderConv.VALUE, fmt(value));
+                sinkConvergence.appendConvRecord(SinkConvergenceToCsv.CsvHeaderConv.NUM_DEPARTURES,
+                        String.valueOf(departures));
+                sinkConvergence.appendConvRecord(SinkConvergenceToCsv.CsvHeaderConv.ARRIVAL_RATE,
+                        String.valueOf(arrivalRate));
+                sinkConvergence.appendConvRecord(SinkConvergenceToCsv.CsvHeaderConv.TIME, fmt(now));
                 sinkConvergence.lineConvRecord();
             }
         }
@@ -224,7 +254,8 @@ public class StatsCollector {
                 double elapsed = scheduler.getCurrentTime();
                 result = (elapsed > 0 ? busy.getBusyTime() / elapsed : 0.0);
             }
-            default -> { /* nessuna azione */ }
+            default -> {
+                /* nessuna azione */ }
         }
         convergence.put(pair, result);
         return result;
@@ -234,14 +265,14 @@ public class StatsCollector {
         double result = 0.0;
         switch (pair.getRight()) {
             case MEAN_RESPONSE_TIME ->
-                    result = rtNode.get(pair.getLeft()).welfordEstimator.getMean();
-                    
+                result = rtNode.get(pair.getLeft()).welfordEstimator.getMean();
+
             case STD_RESPONSE_TIME ->
-                    result = rtNode.get(pair.getLeft()).welfordEstimator.getStddev();
+                result = rtNode.get(pair.getLeft()).welfordEstimator.getStddev();
             case MEAN_POPULATION ->
-                    result = popNode.get(pair.getLeft()).getMean();
+                result = popNode.get(pair.getLeft()).getMean();
             case STD_POPULATION ->
-                    result = popNode.get(pair.getLeft()).getStd();
+                result = popNode.get(pair.getLeft()).getStd();
             case THROUGHPUT -> {
                 double elapsed = scheduler.getCurrentTime();
                 result = elapsed > 0
@@ -254,7 +285,8 @@ public class StatsCollector {
                         ? busyNode.get(pair.getLeft()).getBusyTime() / elapsed
                         : 0.0;
             }
-            default -> { /* nessuna azione */ }
+            default -> {
+                /* nessuna azione */ }
         }
         convergence.put(pair, result);
         return result;
@@ -301,7 +333,8 @@ public class StatsCollector {
     }
 
     /**
-     * Finalizza gli stimatori time-weighted, costruisce le metriche globali e per-nodo,
+     * Finalizza gli stimatori time-weighted, costruisce le metriche globali e
+     * per-nodo,
      * logga le tabelle ASCII e scrive il CSV di riepilogo.
      */
     public void calculateStats(NextEventScheduler scheduler, Network network) {
@@ -319,14 +352,15 @@ public class StatsCollector {
         double elapsed = ot.elapsed();
 
         // === MODIFICA: completamenti OVERALL "effettivi"
-        // Se externalCompletions è valorizzato (probabilistico), usalo; altrimenti resta il contatore interno.
+        // Se externalCompletions è valorizzato (probabilistico), usalo; altrimenti
+        // resta il contatore interno.
         long completedOverall = comp.getCountSinceStart();
-
 
         // Throughput globale da completamenti a EXIT
         double throughput = elapsed > 0 ? completedOverall / elapsed : 0.0;
 
-        // Tempo di risposta overall: media via somma pesata per visite; std via Welford globale
+        // Tempo di risposta overall: media via somma pesata per visite; std via Welford
+        // globale
         double meanRtOverall = calculateOverallRtByVisits();
         double stdRtOverall = rt.welfordEstimator.getStddev();
 
@@ -417,7 +451,6 @@ public class StatsCollector {
         // if (perJobCollector != null) { perJobCollector.flushToDisk(); }
     }
 
-
     private @NotNull PerNodeResult getPerNodeResult(String n, double elapsed) {
         WelfordEstimator wrt = rtNode.get(n).welfordEstimator;
         double sampleWait = wrt.getMean();
@@ -434,7 +467,8 @@ public class StatsCollector {
     }
 
     private record PerNodeResult(double sampleWait, double stdWn, double samplePopulation, double stdNn,
-                                 double sampleMean, double util) { }
+            double sampleMean, double util) {
+    }
 
     private double getVarSys() {
         double[] timeA = perJobCollector.getTA();
@@ -456,16 +490,21 @@ public class StatsCollector {
             batchMeans.finalizeAt(scheduler.getCurrentTime());
 
             var headersSummary = List.of(
-                    "metric", "mean_of_means", "sample_std", "std_error"
-            );
+                    "metric", "mean_of_means", "sample_std", "std_error");
             BatchMeansSummary.MultiStats ms = BatchMeansSummary.summarizeAll(batchMeans.getResults());
             var rowsSummary = new ArrayList<List<Object>>();
-            rowsSummary.add(List.of(MEAN_RESPONSE_TIME, ms.meanResponseTime().meanOfMeans, ms.meanResponseTime().sampleStd, ms.meanResponseTime().stdError));
-            rowsSummary.add(List.of("mean_response_time_weighted", ms.meanRtWeighted().weightedMean(), "-", ms.meanRtWeighted().stdError()));
-            rowsSummary.add(List.of("T_little(meanN/X)", ms.meanRtLittle().meanOfMeans, ms.meanRtLittle().sampleStd, ms.meanRtLittle().stdError));
-            rowsSummary.add(List.of(MEAN_POPULATION, ms.meanPopulation().meanOfMeans, ms.meanPopulation().sampleStd, ms.meanPopulation().stdError));
-            rowsSummary.add(List.of(THROUGHPUT, ms.throughput().meanOfMeans, ms.throughput().sampleStd, ms.throughput().stdError));
-            rowsSummary.add(List.of(UTILIZATION, ms.utilization().meanOfMeans, ms.utilization().sampleStd, ms.utilization().stdError));
+            rowsSummary.add(List.of(MEAN_RESPONSE_TIME, ms.meanResponseTime().meanOfMeans,
+                    ms.meanResponseTime().sampleStd, ms.meanResponseTime().stdError));
+            rowsSummary.add(List.of("mean_response_time_weighted", ms.meanRtWeighted().weightedMean(), "-",
+                    ms.meanRtWeighted().stdError()));
+            rowsSummary.add(List.of("T_little(meanN/X)", ms.meanRtLittle().meanOfMeans, ms.meanRtLittle().sampleStd,
+                    ms.meanRtLittle().stdError));
+            rowsSummary.add(List.of(MEAN_POPULATION, ms.meanPopulation().meanOfMeans, ms.meanPopulation().sampleStd,
+                    ms.meanPopulation().stdError));
+            rowsSummary.add(List.of(THROUGHPUT, ms.throughput().meanOfMeans, ms.throughput().sampleStd,
+                    ms.throughput().stdError));
+            rowsSummary.add(List.of(UTILIZATION, ms.utilization().meanOfMeans, ms.utilization().sampleStd,
+                    ms.utilization().stdError));
             rowsSummary.add(List.of("simulation_time(H)", ms.totalHours(), "-", "-"));
             // Campi basati su covarianza non disponibili per batch con i dati attuali:
             rowsSummary.add(List.of("std_response_time_cov", "-", "-", "-"));
@@ -535,16 +574,20 @@ public class StatsCollector {
         ot.startCollecting(now);
         busy.startCollecting(now);
         pop.startCollecting(now);
-        comp.startCollecting();          // baseline per throughput
-        rt.startCollecting();            // restart std_RT end-to-end
+        comp.startCollecting(); // baseline per throughput
+        rt.startCollecting(); // restart std_RT end-to-end
 
         // Per-nodo
-        for (PopulationEstimatorNode pn : popNode.values()) pn.startCollecting(now);
-        for (CompletionsEstimatorNode cn : compNode.values()) cn.startCollecting();
-        for (ResponseTimeEstimatorNode rn : rtNode.values()) rn.startCollecting();
+        for (PopulationEstimatorNode pn : popNode.values())
+            pn.startCollecting(now);
+        for (CompletionsEstimatorNode cn : compNode.values())
+            cn.startCollecting();
+        for (ResponseTimeEstimatorNode rn : rtNode.values())
+            rn.startCollecting();
 
         // Per-job
-        if (perJobCollector != null) perJobCollector.startCollecting();
+        if (perJobCollector != null)
+            perJobCollector.startCollecting();
         if (batchMeans != null) {
             batchMeans.startAt(now);
         }
@@ -552,7 +595,10 @@ public class StatsCollector {
 
     // --- NEW: API per abilitare/riempire le metriche di percorso nel CSV ---
 
-    /** Abilita/disabilita l'esportazione delle metriche di percorso (usato solo in probabilistico). */
+    /**
+     * Abilita/disabilita l'esportazione delle metriche di percorso (usato solo in
+     * probabilistico).
+     */
     public void enableRoutingPathStats(boolean enabled) {
         this.routingPathStatsEnabled = enabled;
     }
