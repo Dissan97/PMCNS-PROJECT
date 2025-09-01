@@ -201,4 +201,29 @@ public class ResponseTimePerJobCollector {
         tP.clear();
         // Nothing else to reset: per-job sums live in the node estimators (already reset upstream)
     }
+
+    // ===== BRIDGE API per probabilistico =====
+
+    /**
+     * <p>Notifica esplicita di un EXIT per il job {@code jobId} al tempo {@code tNow},
+     * drenando i tempi per-nodo da A/B/P e registrando il record, esattamente come
+     * nel ramo {@link #onDeparture} su EXIT.</p>
+     */
+    public void notifyExit(int jobId, double tNow) {
+        if (jobId < 0) return;
+
+        double timeA = estA.takeAndClear(jobId);
+        double timeB = estB.takeAndClear(jobId);
+        double timeP = estP.takeAndClear(jobId);
+        double timeTotal = timeA + timeB + timeP;
+
+        sb.append(jobId).append(',')
+                .append(timeA).append(',')
+                .append(timeB).append(',')
+                .append(timeP).append(',')
+                .append(timeTotal).append(',')
+                .append(tNow).append('\n');
+
+        tA.add(timeA); tB.add(timeB); tP.add(timeP);
+    }
 }

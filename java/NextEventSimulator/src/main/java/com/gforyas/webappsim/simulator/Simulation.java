@@ -4,9 +4,14 @@ import com.gforyas.webappsim.estimators.StatsCollector;
 import com.gforyas.webappsim.lemer.Rngs;
 import com.gforyas.webappsim.lemer.Rvms;
 import com.gforyas.webappsim.logging.SysLogger;
+import com.gforyas.webappsim.simulator.arrivals.ArrivalGenerator;
+import com.gforyas.webappsim.simulator.router.DeterministicRouter;
+import com.gforyas.webappsim.simulator.router.ProbabilisticRouter;
+import com.gforyas.webappsim.simulator.router.Router;
 import com.gforyas.webappsim.util.Printer;
 
 import java.util.Map;
+import java.util.HashMap; // NEW
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.gforyas.webappsim.util.PersonalPrintStream.renderProgress;
@@ -20,28 +25,37 @@ public class Simulation {
     public static final AtomicInteger SIMULATION_COUNTER = new AtomicInteger(0);
     private static final Rvms RVMS = Rvms.getInstance();
 
-    protected  final Map<String, Map<String, TargetClass>> routingMatrix;
-    protected final int maxEvents;
+    // --- NEW: router strategy (deterministico o probabilistico) ---
+    protected Router router;
+
+    // --- esistente ---
+    protected Map<String, Map<String, TargetClass>> routingMatrix;
+    protected int maxEvents;
     protected final NextEventScheduler scheduler = new NextEventScheduler();
-    protected final Network network;
-    protected final Rngs rng;
-    private final ArrivalGenerator arrivalGenerator;
+    protected Network network;
+    protected Rngs rng;
+    protected ArrivalGenerator arrivalGenerator;
 
     protected int totalExternalArrivals = 0;
     protected int totalCompletedJobs = 0;
     protected boolean arrivalsStopped = false;
 
-    protected final StatsCollector statsCollector;
+    protected StatsCollector statsCollector;
 
-    /**
-     * Soglia di completamenti (EXIT) per terminare il warm-up.
-     */
-    protected final int warmupCompletions;
+    /** Soglia di completamenti (EXIT) per terminare il warm-up. */
+    protected int warmupCompletions;
 
-    /**
-     * True quando abbiamo iniziato a misurare (post warm-up).
-     */
+    /** True quando abbiamo iniziato a misurare (post warm-up). */
     protected boolean measuring = false;
+
+    // --- NEW: safety max hops (solo prob.) ---
+    protected Integer safetyMaxHops;
+
+    // --- NEW: tracking percorsi SOLO in probabilistico ---
+    protected Map<Integer, PathTracker> pathTrackers; // jobId -> tracker
+    private int countAB = 0;
+    private int countABAPA = 0;
+    private int countABABForced = 0;
 
     public Simulation(SimulationConfig cfg, long seed) {
         double arrivalRate = cfg.getArrivalRate();
@@ -53,14 +67,24 @@ public class Simulation {
         this.rng.plantSeeds(seed);
         this.warmupCompletions = cfg.getWarmupCompletions();
 
+        // NEW: costruzione router (retro-compatibile)
+        if (cfg.isProbabilistic()) {
+            ProbabilisticRouter pr = new ProbabilisticRouter(cfg.getProbRoutingTable());
+            this.router = pr;
+        } else {
+            this.router = new DeterministicRouter(this.routingMatrix);
+        }
+
+        this.safetyMaxHops = cfg.getSafetyMaxHops();
+        this.pathTrackers = router.isProbabilistic() ? new HashMap<>() : null;
+
         generateBootstrap(cfg);
 
         this.arrivalGenerator = new ArrivalGenerator(scheduler, arrivalRate, "A", 1, rng);
-        this.statsCollector = new StatsCollector(network, scheduler, routingMatrix,
-                cfg, arrivalRate);
-
         scheduler.subscribe(Event.Type.ARRIVAL, this::onArrival);
         scheduler.subscribe(Event.Type.DEPARTURE, this::onDeparture);
+        this.statsCollector = new StatsCollector(network, scheduler, routingMatrix,
+                cfg, arrivalRate);
 
         // Se warmup <= 0, misura da subito
         if (warmupCompletions <= 0) {
@@ -68,17 +92,19 @@ public class Simulation {
             measuring = true;
             SysLogger.getInstance().getLogger().info("Warm-up disattivato: misura avviata subito.");
         }
-
     }
 
-    protected  void generateBootstrap(SimulationConfig config) {
+    public Simulation(){
+    }
+
+    protected void generateBootstrap(SimulationConfig config) {
         for (int i = 0; i < config.getInitialArrival(); i++) {
             Event bootstrapEvent = new BootstrapEvent(0.0, Event.Type.ARRIVAL, "A", -1, 1);
             scheduler.scheduleAt(bootstrapEvent, 0.0);
         }
     }
 
-    protected  void onArrival(Event e, NextEventScheduler s) {
+    protected void onArrival(Event e, NextEventScheduler s) {
         Node node = network.getNode(e.getServer());
         if (e.getJobId() == -1) {
             // External arrival
@@ -102,39 +128,98 @@ public class Simulation {
         }
     }
 
-    protected  void onDeparture(Event e, NextEventScheduler s) {
+    protected void onDeparture(Event e, NextEventScheduler s) {
         Node node = network.getNode(e.getServer());
         Job job = s.getJobTable().get(e.getJobId());
         if (job == null) return;
 
         node.departure(job, s);
 
-        TargetClass tc = lookupRouting(e.getServer(), job.getJobClass());
+        TargetClass tc = router.next(e.getServer(), job.getJobClass(), rng);
         if (tc == null) return;
 
-        if ("EXIT".equalsIgnoreCase(tc.eventClass())) {
+        // SOLO in probabilistico: proiettiamo la decisione nella mappa
+        if (router.isProbabilistic()) {
+            routingMatrix
+                    .computeIfAbsent(e.getServer(), k -> new java.util.HashMap<>())
+                    .put(Integer.toString(job.getJobClass()), tc);
+        }
+
+
+        // --- EXIT robusto: vale se o la class o il target sono "EXIT"
+        boolean isExit =
+                "EXIT".equalsIgnoreCase(tc.eventClass()) ||
+                        "EXIT".equalsIgnoreCase(tc.serverTarget());
+
+        // --- tracking SOLO in probabilistico (transizioni tra nodi, no class-check) ---
+        if (router.isProbabilistic()) {
+            PathTracker pt = pathTrackers.computeIfAbsent(job.getId(), k -> new PathTracker());
+
+            // safety hops
+            pt.hops++;
+            if (safetyMaxHops != null && pt.hops > safetyMaxHops) {
+                countABABForced++;
+                finalizeExit(job, s);
+                pathTrackers.remove(job.getId());
+                return;
+            }
+
+            String curNode = e.getServer();
+            String nextNode = isExit ? "EXIT" : tc.serverTarget();
+
+            // B -> EXIT ⇒ AB
+            if ("B".equalsIgnoreCase(curNode) && "EXIT".equalsIgnoreCase(nextNode)) {
+                pt.exitedAfterB = true;
+            }
+            // A -> B ⇒ loop ABAB (conteggia ogni rientro in B da A)
+            if ("A".equalsIgnoreCase(curNode) && "B".equalsIgnoreCase(nextNode)) {
+                pt.loops++;
+            }
+            // A -> P ⇒ traccia ABAPA (ha raggiunto P dopo A)
+            if ("A".equalsIgnoreCase(curNode) && "P".equalsIgnoreCase(nextNode)) {
+                pt.reachedP = true;
+            }
+        }
+
+        // --- gestione EXIT unificata ---
+        if (isExit) {
             totalCompletedJobs++;
 
-            // avvia la misura al raggiungimento della soglia di completamenti
+            // contabilizza percorso SOLO in probabilistico
+            if (router.isProbabilistic()) {
+                PathTracker pt = pathTrackers.remove(job.getId());
+                if (pt != null) {
+                    if (pt.exitedAfterB) {
+                        countAB++;
+                        job.setRoute("AB");
+                    } else if (pt.reachedP) {
+                        countABAPA++;
+                        job.setRoute("ABAPA");
+                    } else if (pt.loops > 0) {
+                        countABABForced++;
+                    }
+                }
+            }
+
+            // warm-up by completions
             if (!measuring && totalCompletedJobs >= warmupCompletions) {
                 statsCollector.startMeasurement(s);
                 measuring = true;
-
-                String info = String.format("Warm-up (completamenti) terminato dopo %d EXIT a t=%.3f s (%.3f h)",
-                        totalCompletedJobs, s.getCurrentTime(), s.getCurrentTime() / 3600.0);
-                SysLogger.getInstance().getLogger().info(
-                        info
+                String info = String.format(
+                        "Warm-up (completamenti) terminato dopo %d EXIT a t=%.3f s (%.3f h)",
+                        totalCompletedJobs, s.getCurrentTime(), s.getCurrentTime() / 3600.0
                 );
-
+                SysLogger.getInstance().getLogger().info(info);
             }
 
-            // libera la jobTable per evitare leak
-            s.getJobTable().remove(job.getId());
+            s.getJobTable().remove(job.getId()); // cleanup
             return;
         }
 
+        // --- routing normale ---
         scheduleTheTarget(s, job, tc, RVMS);
     }
+
 
     protected void scheduleTheTarget(NextEventScheduler s, Job job, TargetClass tc, Rvms rvms) {
         String nextNode = tc.serverTarget();
@@ -154,12 +239,12 @@ public class Simulation {
         s.schedule(next);
     }
 
-    protected  TargetClass lookupRouting(String node, int cls) {
+    // --- LEGACY: lasciata per compatibilità, non più usata direttamente ---
+    protected TargetClass lookupRouting(String node, int cls) {
         Map<String, TargetClass> m = routingMatrix.get(node);
         if (m == null) return null;
         return m.get(Integer.toString(cls));
     }
-
 
     public void run() {
         int cnt = 0;
@@ -170,9 +255,6 @@ public class Simulation {
         int lastStep = -1;                     // last emitted step bucket
         final int barWidth = 28;               // width of the ASCII bar
         final long target = Math.max(1L, maxEvents); // avoid /0
-
-        // initial line (0%)
-
 
         while (scheduler.hasNext()) {
             scheduler.next();
@@ -201,7 +283,22 @@ public class Simulation {
                     .warning("Warm-up non attivato: statistiche raccolte dall'inizio della simulazione.");
         }
 
+        // --- NEW: passa le metriche di percorso allo StatsCollector SOLO se probabilistico ---
+        if (router.isProbabilistic()) {
+            statsCollector.enableRoutingPathStats(true);
+            statsCollector.setRoutingPathCounts(countAB, countABAPA, countABABForced);
+        }
+
         statsCollector.calculateStats(scheduler, network);
+
+        // --- NEW: stampa compatta delle statistiche di percorso SOLO in probabilistico ---
+        if (router.isProbabilistic()) {
+            String msg = String.format(
+                    "RoutingPathStats: AB=%d, ABAPA=%d, ABAB_forced=%d",
+                    countAB, countABAPA, countABABForced
+            );
+            SysLogger.getInstance().getLogger().info(msg);
+        }
 
         long wallEnd = System.nanoTime();
         String finalOutput = String.format("Simulation %d Completed: external=%d, done=%d, took=%f s",
@@ -210,7 +307,8 @@ public class Simulation {
         SysLogger.getInstance().getLogger().info(finalOutput);
     }
 
-    protected  int showRender(int stepNow, int lastStep, long wallStart, int cnt, long target, int pct) {
+
+    protected int showRender(int stepNow, int lastStep, long wallStart, int cnt, long target, int pct) {
         if (stepNow != lastStep) {
             lastStep = stepNow;
 
@@ -240,6 +338,32 @@ public class Simulation {
                 ", statsCollector=" + statsCollector +
                 ", warmupCompletions=" + warmupCompletions +
                 ", measuring=" + measuring +
+                // NEW: info minima routing
+                ", routerProbabilistic=" + router.isProbabilistic() +
                 '}';
+    }
+
+    // --- NEW: piccolo tracker per i percorsi (solo probabilistico) ---
+    private static final class PathTracker {
+        int hops = 0;
+        boolean exitedAfterB = false;
+        boolean reachedP = false;
+        int loops = 0;
+    }
+
+    // --- NEW: uscita forzata (riusa la stessa logica del ramo EXIT) ---
+    private void finalizeExit(Job job, NextEventScheduler s) {
+        totalCompletedJobs++;
+
+        if (!measuring && totalCompletedJobs >= warmupCompletions) {
+            statsCollector.startMeasurement(s);
+            measuring = true;
+
+            String info = String.format("Warm-up (completamenti) terminato dopo %d EXIT a t=%.3f s (%.3f h)",
+                    totalCompletedJobs, s.getCurrentTime(), s.getCurrentTime() / 3600.0);
+            SysLogger.getInstance().getLogger().info(info);
+        }
+
+        s.getJobTable().remove(job.getId());
     }
 }
