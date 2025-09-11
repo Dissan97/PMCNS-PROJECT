@@ -73,11 +73,11 @@ public class StatsCollector {
     public static final String OVERALL = "OVERALL";
 
     // --- Stimatori globali ---
-    protected  ResponseTimeEstimator rt; // end-to-end (ARRIVAL esterno -> EXIT)
-    protected  PopulationEstimator pop; // popolazione pesata nel tempo (traccia jobId)
-    protected  CompletionsEstimator comp; // completamenti a EXIT
-    protected  ObservationTimeEstimator ot; // finestra osservata
-    protected  BusyTimeEstimator busy; // busy time globale
+    protected ResponseTimeEstimator rt; // end-to-end (ARRIVAL esterno -> EXIT)
+    protected PopulationEstimator pop; // popolazione pesata nel tempo (traccia jobId)
+    protected CompletionsEstimator comp; // completamenti a EXIT
+    protected ObservationTimeEstimator ot; // finestra osservata
+    protected BusyTimeEstimator busy; // busy time globale
 
     // --- Stimatori per nodo ---
     protected final Map<String, ResponseTimeEstimatorNode> rtNode = new HashMap<>();
@@ -86,8 +86,7 @@ public class StatsCollector {
     protected final Map<String, BusyTimeEstimatorNode> busyNode = new HashMap<>();
 
     // --- Collector per tempi per-job (A, B, P) ---
-    private  ResponseTimePerJobCollector perJobCollector;
-
+    private ResponseTimePerJobCollector perJobCollector;
 
     protected double arrivalRate;
 
@@ -98,7 +97,7 @@ public class StatsCollector {
     private int times = 0;
     private boolean initial = true;
     private int counter = 0;
-    private  SinkToCsv sink;
+    private SinkToCsv sink;
     private SinkConvergenceToCsv sinkConvergence;
 
     // Parametri tempo
@@ -119,10 +118,10 @@ public class StatsCollector {
     private int pathABAPA = 0;
     private int pathABABForced = 0;
     // Modalità routing per reporting CSV ("deterministic" | "probabilistic")
-    private  String routingMode;
+    private String routingMode;
 
-
-    public StatsCollector(){}
+    public StatsCollector() {
+    }
 
     /**
      * Crea la facade e registra tutti gli stimatori/collector.
@@ -239,7 +238,8 @@ public class StatsCollector {
     private double convergenceOverall(NextEventScheduler scheduler, Pair<String, String> pair) {
         double result = 0.0;
         switch (pair.getRight()) {
-            case MEAN_RESPONSE_TIME -> result = calculateOverallRtByVisits();
+            // case MEAN_RESPONSE_TIME -> result = calculateOverallRtByVisits();
+            case MEAN_RESPONSE_TIME -> result = rt.getWelfordEstimator().getMean();
             case STD_RESPONSE_TIME -> result = rt.welfordEstimator.getStddev();
             case MEAN_POPULATION -> result = pop.getMean();
             case STD_POPULATION -> result = pop.getStd();
@@ -358,7 +358,8 @@ public class StatsCollector {
 
         // Tempo di risposta overall: media via somma pesata per visite; std via Welford
         // globale
-        double meanRtOverall = calculateOverallRtByVisits();
+        // double meanRtOverall = calculateOverallRtByVisits();
+        double meanRtOverall = rt.getWelfordEstimator().getMean();
         double stdRtOverall = rt.welfordEstimator.getStddev();
 
         // Popolazione globale pesata nel tempo
@@ -479,8 +480,6 @@ public class StatsCollector {
 
         return Math.max(0.0, varA + varB + varP + 2.0 * (covAB + covAP + covBP));
     }
-
-
 
     private double calculateOverallRtByVisits() {
         double a = rtNode.containsKey("A") ? rtNode.get("A").welfordEstimator.getMean() : 0.0;

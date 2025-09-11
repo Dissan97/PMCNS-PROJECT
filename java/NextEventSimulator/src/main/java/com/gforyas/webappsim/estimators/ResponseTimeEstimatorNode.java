@@ -33,14 +33,14 @@ public class ResponseTimeEstimatorNode extends ResponseTimeEstimator {
         if (!collecting) return; 
         if (e.getJobId() >= 0 && node.equals(e.getServer())) {
             // start per-visit
-            jobMap.put(e.getJobId(), e.getTime());
+            jobMap.put(e.getJobId(), s.getCurrentTime());
         }
     }
 
     @Override
     public void startCollecting() {
         collecting = true;
-        jobMap.clear();
+        //jobMap.clear();
         sumByJob.clear();
         welfordEstimator.reset();
     }
@@ -52,7 +52,7 @@ public class ResponseTimeEstimatorNode extends ResponseTimeEstimator {
         int id = e.getJobId();
         Double t0 = jobMap.remove(id);
         if (t0 != null) {
-            double dt = e.getTime() - t0;
+            double dt = s.getCurrentTime() - t0;
             welfordEstimator.add(dt);                         // keep per-node mean/std as before
             sumByJob.merge(id, dt, Double::sum); // accumulate per job
         }

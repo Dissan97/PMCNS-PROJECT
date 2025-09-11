@@ -4,38 +4,21 @@ import com.gforyas.webappsim.simulator.Event;
 import com.gforyas.webappsim.simulator.NextEventScheduler;
 import com.gforyas.webappsim.simulator.TargetClass;
 
-import java.util.HashSet;
 import java.util.Map;
+import java.util.HashSet;
 import java.util.Set;
 
 /**
- * Weighted-time estimator of the TOTAL system population N(t), robust to
- * internal routing.
+ * Weighted-time estimator of the TOTAL system population N(t),
+ * aligned with the end-to-end response-time window:
+ * we start counting a job at its FIRST known ARRIVAL (id >= 0) and
+ * stop counting it at EXIT. Internal hops do not change N(t).
  *
- * <p><b>Rules:</b></p>
- * <ul>
- *   <li><b>ARRIVAL with id &lt; 0 (external):</b> enters immediately, increments the population,
- *   and increments {@code pendingAnon}.</li>
- *   <li><b>First ARRIVAL with id &gt;= 0:</b>
- *     <ul>
- *       <li>If {@code pendingAnon} &gt; 0 → consumes one pending anonymous job, adds the id
- *       to the set, but does not increment the population.</li>
- *       <li>Otherwise (no pending anonymous jobs) → first entrance with known id → increments
- *       the population and records the id.</li>
- *     </ul>
- *   </li>
- *   <li><b>DEPARTURE:</b> decreases the population only if (server, jobClass) leads to EXIT;
- *   if id &gt;= 0, also removes it from the set.</li>
- * </ul>
- *
- * <p>Integration occurs <b>before</b> modifying N(t): area = ∫N(t)dt,
- * area2 = ∫N(t)<sup>2</sup> dt.</p>
+ * Integration occurs BEFORE modifying N(t): area = ∫N(t)dt, area2 = ∫N(t)^2 dt.
  */
 public class PopulationEstimator {
 
-    /**
-     * Current system population.
-     */
+    /** Current system population (jobs with id>=0 currently “in measurement”). */
     protected int pop = 0;
 
     /** Start time of the measurement window. */
@@ -44,236 +27,147 @@ public class PopulationEstimator {
     protected double lastTime;
     /** Integrated area ∫N(t)dt. */
     protected double area = 0.0;
-    /** Integrated squared area ∫N(t)<sup>2</sup>dt. */
+    /** Integrated squared area ∫N(t)^2 dt. */
     protected double area2 = 0.0;
 
-    /** Minimum population observed. */
-    protected int min = 0;
-    /** Maximum population observed. */
-    protected int max = 0;
+    /** Minimum/maximum population observed. */
+    protected int min = 0, max = 0;
 
     /** Routing matrix used to recognize EXIT transitions. */
-    private Map<String, Map<String, TargetClass>> routing;
+    private final Map<String, Map<String, TargetClass>> routing;
 
-    /** Set of job ids (id &gt;= 0) currently in the system. */
+    /** Set of job ids (id >= 0) currently in the system. */
     private final Set<Integer> inSystem = new HashSet<>();
-
-    /**
-     * Number of anonymous jobs (id &lt; 0) that entered but have not yet been
-     * matched to their first known id (id &gt;= 0).
-     */
-    private int pendingAnon = 0;
 
     public PopulationEstimator(NextEventScheduler sched,
                                Map<String, Map<String, TargetClass>> routing) {
         this.routing = routing;
         this.startTime = sched.getCurrentTime();
-        this.lastTime = this.startTime;
+        this.lastTime  = this.startTime;
 
-        // Subscribe to events; always integrate BEFORE modifying N
-        sched.subscribe(Event.Type.ARRIVAL, this::tickThenMaybeEnter);
+        // Integrate BEFORE state changes
+        sched.subscribe(Event.Type.ARRIVAL,   this::tickThenMaybeEnter);
         sched.subscribe(Event.Type.DEPARTURE, this::tickThenMaybeExit);
     }
 
     public PopulationEstimator() {
+        this.routing = null;
     }
 
-    /**
-     * Integrates {@code area} and {@code area2} up to the current time
-     * without modifying the population.
-     */
+    /** Integrate area and area2 up to current sim time. */
     protected void tick(NextEventScheduler s) {
         double now = s.getCurrentTime();
-        double dt = now - lastTime;
+        double dt  = now - lastTime;
         if (dt > 0.0) {
-            area += pop * dt;
+            area  += pop * dt;
             area2 += (double) pop * (double) pop * dt;
         }
         lastTime = now;
     }
 
-    /** Utility per avanzare l'integrazione fino a {@code now} senza scheduler (bridge API). */
+    /** Bridge API: integrate up to arbitrary time (without scheduler). */
     private void tickTo(double now) {
         double dt = now - lastTime;
         if (dt > 0.0) {
-            area += pop * dt;
+            area  += pop * dt;
             area2 += (double) pop * (double) pop * dt;
         }
         lastTime = now;
     }
 
     /**
-     * Handles an ARRIVAL event with matching between anonymous jobs (id &lt; 0)
-     * and the first known id (id &gt;= 0).
+     * ARRIVAL:
+     * - Ignore anonymous arrivals (id < 0).
+     * - On FIRST known id (id >= 0 not seen before) => increment N and record id.
+     * - Internal hops (same id seen again) => no change.
      */
     private void tickThenMaybeEnter(Event e, NextEventScheduler s) {
         tick(s);
         int id = e.getJobId();
 
         if (id < 0) {
-            // External ARRIVAL: enters now and registers one pending anonymous job
-            pop += 1;
-            pendingAnon += 1;
-            if (pop > max)
-                max = pop;
+            // Align with response time: we DO NOT start counting at anonymous arrival.
             return;
         }
-
-        // id >= 0: if already seen, this is an internal hop → ignore
-        if (inSystem.contains(id)) {
-            return;
-        }
-
-        // First entrance with known id
-        if (pendingAnon > 0) {
-            // Matches one previously anonymous job → do not increment population, just mark id
-            pendingAnon -= 1;
-            inSystem.add(id);
-        } else {
-            // No pending anonymous job: direct entrance with known id
-            inSystem.add(id);
+        // First known entrance of this id?
+        if (inSystem.add(id)) {
             pop += 1;
-            if (pop > max)
-                max = pop;
+            if (pop > max) max = pop;
         }
     }
 
     /**
-     * Handles a DEPARTURE event: decreases population only if the
-     * (server, jobClass) leads to EXIT. Removes id from the set if present.
+     * DEPARTURE:
+     * - Decrement only if (server, class) routes to EXIT AND the id is currently in the system.
+     * - Remove id from inSystem on EXIT.
      */
     private void tickThenMaybeExit(Event e, NextEventScheduler s) {
         tick(s);
         if (routesToExit(e.getServer(), e.getJobClass())) {
             int id = e.getJobId();
-            if (id >= 0)
-                inSystem.remove(id);
-            pop -= 1;
-            if (pop < min)
-                min = pop;
+            if (id >= 0 && inSystem.remove(id)) {
+                pop -= 1;
+                if (pop < min) min = pop;
+            }
         }
     }
 
-    /**
-     * Recognizes if a (server, jobClass) pair routes to EXIT.
-     *
-     * @param server server identifier
-     * @param jobClass job class id
-     * @return {@code true} if this transition leads to EXIT, {@code false} otherwise
-     */
     private boolean routesToExit(String server, int jobClass) {
+        if (routing == null) return false;
         Map<String, TargetClass> m = routing.get(server);
-        if (m == null)
-            return false;
+        if (m == null) return false;
         TargetClass tc = m.get(Integer.toString(jobClass));
         return tc != null && "EXIT".equalsIgnoreCase(tc.eventClass());
     }
 
-    /**
-     * Bridge API per probabilistico: notifica esplicita di un EXIT a tempo {@code now}
-     * (equivalente al ramo EXIT di {@link #tickThenMaybeExit} ma senza consultare la routing).
-     */
+    /** Explicit EXIT notification (bridge API): safe decrement only if we were counting this id. */
     public void notifyExit(int jobId, double now) {
         tickTo(now);
-        if (jobId >= 0) {
-            inSystem.remove(jobId);
-        }
-        pop -= 1;
-        if (pop < min) {
-            min = pop;
+        if (jobId >= 0 && inSystem.remove(jobId)) {
+            pop -= 1;
+            if (pop < min) min = pop;
         }
     }
 
-    /**
-     * Returns the elapsed observation time.
-     *
-     * @return elapsed time
-     */
-    public double elapsed() {
-        return lastTime - startTime;
-    }
+    // ---------- Public getters (unchanged) ----------
 
-    /**
-     * Returns the weighted-time mean population E[N].
-     *
-     * @return mean population
-     */
+    public double elapsed() { return lastTime - startTime; }
+
     public double getMean() {
         double time = elapsed();
         return (time > 0.0) ? (area / time) : 0.0;
     }
 
-    /**
-     * Returns the weighted-time variance Var[N] = E[N²] − (E[N])².
-     *
-     * @return variance of population
-     */
     public double getVariance() {
         double time = elapsed();
-        if (time <= 0.0)
-            return 0.0;
+        if (time <= 0.0) return 0.0;
         double m1 = area / time;
         double m2 = area2 / time;
-        double v = m2 - m1 * m1;
+        double v  = m2 - m1 * m1;
         return Math.max(v, 0.0);
     }
 
-    /**
-     * Returns the weighted-time standard deviation.
-     *
-     * @return standard deviation of population
-     */
-    public double getStd() {
-        return Math.sqrt(getVariance());
-    }
+    public double getStd() { return Math.sqrt(getVariance()); }
 
-    /**
-     * Returns the minimum observed population.
-     *
-     * @return minimum population
-     */
-    public int getMin() {
-        return min;
-    }
+    public int getMin() { return min; }
+    public int getMax() { return max; }
 
-    /**
-     * Returns the maximum observed population.
-     *
-     * @return maximum population
-     */
-    public int getMax() {
-        return max;
-    }
-
-    /**
-     * Finalizes the last interval before reading mean or standard deviation.
-     *
-     * @param currentTime current simulation time
-     */
     public void finalizeAt(double currentTime) {
         double dt = currentTime - lastTime;
         if (dt > 0.0) {
-            area += pop * dt;
+            area  += pop * dt;
             area2 += (double) pop * (double) pop * dt;
         }
         lastTime = currentTime;
     }
 
-    /**
-     * Starts a new measurement window from {@code now}. This does not reset
-     * the current population, {@code inSystem}, or {@code pendingAnon}.
-     *
-     * @param now current simulation time
-     */
+    /** Restart measurement window; do NOT reset pop nor inSystem. */
     public void startCollecting(double now) {
         this.area = 0.0;
         this.area2 = 0.0;
         this.startTime = now;
-        this.lastTime = now;
-
-        // Optionally reset min and max based on current population
+        this.lastTime  = now;
         this.min = this.pop;
         this.max = this.pop;
     }
-
 }

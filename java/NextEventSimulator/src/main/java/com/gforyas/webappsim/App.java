@@ -100,7 +100,7 @@ public class App {
                 Rngs.resetStreamId();
             }
 
-            //sink.sink();
+            sink.sink();
             convergenceToCsv.sink();
         }
     }

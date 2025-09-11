@@ -34,7 +34,7 @@ public class ResponseTimeEstimator {
         if (!collecting) return;
         int id = e.getJobId();
         if (id >= 0) {
-            jobMap.putIfAbsent(id, e.getTime());
+            jobMap.putIfAbsent(id, s.getCurrentTime());
         }
     }
 
@@ -45,7 +45,7 @@ public class ResponseTimeEstimator {
         int id = e.getJobId();
         Double at = jobMap.remove(id);
         if (at != null) {
-            welfordEstimator.add(e.getTime() - at);
+            welfordEstimator.add(s.getCurrentTime() - at);
         }
     }
 
@@ -59,7 +59,7 @@ public class ResponseTimeEstimator {
     public void startCollecting() {
         collecting = true;
         this.welfordEstimator.reset();
-        this.jobMap.clear();
+        //this.jobMap.clear();
     }
 
     public WelfordEstimator getWelfordEstimator() {
