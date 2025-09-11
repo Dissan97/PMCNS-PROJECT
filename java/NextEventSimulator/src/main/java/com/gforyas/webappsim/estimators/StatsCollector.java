@@ -105,7 +105,7 @@ public class StatsCollector {
     private static final double EARLY_TMAX_S = 60.0; // primi 60 s
     private static final double EARLY_DT_S = 1.0; // 1 punto/s nei primi 60 s
     private static final double LATE_DT_S = 400.0; // poi ogni 400 s
-    private static final int LATE_EVERY_EVENTS = 1000; // fallback
+    private static final int LATE_EVERY_EVENTS = 500; // fallback
 
     // Stato
     private double lastEmitTime = Double.NaN;

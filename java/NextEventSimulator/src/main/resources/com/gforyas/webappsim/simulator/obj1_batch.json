@@ -19,10 +19,10 @@
       "2": {"target": "A", "class": "3"}
     }
     },
-  "batch_size": 5070,
-  "batch_count": 262,
+  "batch_size": 80000,
+  "batch_count": 250,
   "stats_type": "BATCH",
-  "max_events": 20000000,
+  "max_events": 200000000,
   "initial_arrival": 0,
   "warmup_completions": 0
 
