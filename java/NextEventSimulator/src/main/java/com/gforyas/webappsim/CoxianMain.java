@@ -23,7 +23,7 @@ public class CoxianMain {
         SimulationConfig config = ConfigParser.getConfig(confPath);
         config.setRngs(rngs);
 
-        for (var seed : config.getSeeds()) {
+        for (var seed = 0; seed <  config.getSeeds(); seed++) {
             SinkObj5ToCsvCox sink = new SinkObj5ToCsvCox(seed);
             SinkConvergenceToCsv conv = new SinkConvergenceToCsv(seed);
             config.setSink(sink);

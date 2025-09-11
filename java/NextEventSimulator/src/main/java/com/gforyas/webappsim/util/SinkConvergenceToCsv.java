@@ -20,7 +20,7 @@ public class SinkConvergenceToCsv extends SinkToCsv {
 
     private final EnumMap<CsvHeaderConv, String> convRecords = new EnumMap<>(CsvHeaderConv.class);
 
-    public SinkConvergenceToCsv(int seed) {
+    public SinkConvergenceToCsv(long seed) {
         super(seed);
         Path cfgPath = Path.of(getCfgPath());
         String cfgBaseName = cfgPath.getFileName().toString().replace(".json", "");

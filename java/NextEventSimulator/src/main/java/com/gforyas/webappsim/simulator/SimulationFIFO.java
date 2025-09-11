@@ -7,8 +7,8 @@ public class SimulationFIFO extends Simulation {
 
     private final Map<String, NodeFIFO> nodes = new HashMap<>();
 
-    public SimulationFIFO(SimulationConfig cfg, long seed) {
-        super(cfg, seed);
+    public SimulationFIFO(SimulationConfig cfg) {
+        super(cfg);
         Map<String, Node> oldNodes = this.network.getNodes();
 
         oldNodes.forEach((id, node) -> nodes.put(id, new NodeFIFO(node.getName(), node.getServiceMeans())));

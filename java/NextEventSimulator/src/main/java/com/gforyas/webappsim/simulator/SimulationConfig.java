@@ -1,11 +1,10 @@
 package com.gforyas.webappsim.simulator;
 
+import com.gforyas.webappsim.estimators.StatsType;
 import com.gforyas.webappsim.lemer.Rngs;
 import com.gforyas.webappsim.util.SinkConvergenceToCsv;
 import com.gforyas.webappsim.util.SinkToCsv;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -23,6 +22,9 @@ public class SimulationConfig {
     private int warmupCompletions = 10_000; // default sensato
     private SinkToCsv sink;
     private SinkConvergenceToCsv sinkConv;
+    private int initialSeed = 123456789;
+    private StatsType statsType = StatsType.NORMAL;
+    ;
 
     public int getWarmupCompletions() {
         return warmupCompletions;
@@ -62,17 +64,15 @@ public class SimulationConfig {
     private int initialArrival = 0;
 
     /** Semi della simulazione. */
-    private List<Integer> seeds = new ArrayList<>(Arrays.asList(
-            314159265, 271828183, 141421357, 1732584193, 123456789
-    ));
+    private int seeds = 1;
 
     // --- Esistente per modalità LOAD_BALANCE ---
     private Map<String, Map<String, java.util.List<TargetClass>>> routingMatrixLB;
     private SimulationType simulationType = SimulationType.NORMAL;
     private Balancing balancing = Balancing.RR;   // usato solo se simulationType == LOAD_BALANCE
 
-    private int batchLength = -1;
-    private int maxBatches = -1;
+    private int batchSize = -1;
+    private int batchCount = -1;
 
     // =========================
     // Nuovi campi per routing probabilistico
@@ -155,11 +155,11 @@ public class SimulationConfig {
         return this.initialArrival;
     }
 
-    public List<Integer> getSeeds() {
+    public int getSeeds() {
         return seeds;
     }
 
-    public void setSeeds(List<Integer> seeds) {
+    public void setSeeds(int seeds) {
         this.seeds = seeds;
     }
 
@@ -212,9 +212,9 @@ public class SimulationConfig {
         }
         sb.append('}');
 
-        if (batchLength > 0 && maxBatches > 0) {
-            sb.append("\n\t").append("Batch Length: ").append(batchLength);
-            sb.append("\n\t").append("Max Batches: ").append(maxBatches);
+        if (batchSize > 0 && batchCount > 0) {
+            sb.append("\n\t").append("Batch Length: ").append(batchSize);
+            sb.append("\n\t").append("Max Batches: ").append(batchCount);
         }
 
         // Append info di routing probabilistico se presenti
@@ -239,20 +239,20 @@ public class SimulationConfig {
                 "\n}";
     }
 
-    public int getBatchLength() {
-        return this.batchLength;
+    public int getBatchSize() {
+        return this.batchSize;
     }
 
-    public void setBatchLength(int batchLength) {
-        this.batchLength = batchLength;
+    public void setBatchSize(int batchSize) {
+        this.batchSize = batchSize;
     }
 
-    public int getMaxBatches() {
-        return this.maxBatches;
+    public int getBatchCount() {
+        return this.batchCount;
     }
 
-    public void setMaxBatches(int maxBatches) {
-        this.maxBatches = maxBatches;
+    public void setBatchCount(int batchCount) {
+        this.batchCount = batchCount;
     }
 
     public void setSink(SinkToCsv sink) {
@@ -269,5 +269,21 @@ public class SimulationConfig {
 
     public void setSinkConv(SinkConvergenceToCsv sinkConv) {
         this.sinkConv = sinkConv;
+    }
+
+    public void setInitialSeed(int initialSeed) {
+        this.initialSeed = initialSeed;
+    }
+
+    public int getInitialSeed() {
+        return initialSeed;
+    }
+
+    public StatsType getStatsType() {
+        return this.statsType;
+    }
+
+    public void setStatsType(StatsType statsType) {
+        this.statsType = statsType;
     }
 }

@@ -30,7 +30,7 @@ public class SimulationLB extends Simulation {
      * @param lb    load balancing policy
      */
     public SimulationLB(SimulationConfig cfg, long seed, LoadBalance lb) {
-        super(cfg, seed);
+        super(cfg);
         this.policy = Objects.requireNonNull(lb, "LoadBalance policy must not be null");
 
         Map<String, Map<String, List<TargetClass>>> fromCfg = cfg.getRoutingMatrixLB();

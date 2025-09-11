@@ -1,5 +1,6 @@
 package com.gforyas.webappsim.util;
 
+import com.gforyas.webappsim.estimators.StatsType;
 import com.gforyas.webappsim.logging.SysLogger;
 import com.gforyas.webappsim.simulator.Balancing;
 import com.gforyas.webappsim.simulator.ProbArc; // NEW
@@ -105,14 +106,21 @@ public class ConfigParser {
             config.setInitialArrival(jsonObject.getInt(INITIAL_ARRIVAL.name().toLowerCase()));
         }
 
+
+        if (jsonObject.has(INITIAL_SEEDS.name().toLowerCase())) {
+            int initialSeed = jsonObject.getInt(INITIAL_SEEDS.name().toLowerCase());
+            config.setInitialSeed(initialSeed);
+        }
+
+        if (jsonObject.has(STATS_TYPE.name().toLowerCase())) {
+            StatsType statsType = StatsType.valueOf(jsonObject.getString(STATS_TYPE.name().toLowerCase()));
+            config.setStatsType(statsType);
+        }
+
         if (jsonObject.has(SEEDS.name().toLowerCase())) {
             String info = ConfigParser.class.getSimpleName() + " found seeds parsing the csv";
             SysLogger.getInstance().getLogger().info(info);
-            ArrayList<Integer> seeds = new ArrayList<>();
-            JSONArray seedsArray = jsonObject.getJSONArray(SEEDS.name().toLowerCase());
-            for (int i = 0; i < seedsArray.length(); i++) {
-                seeds.add(seedsArray.getInt(i));
-            }
+            int seeds = jsonObject.getInt(SEEDS.name().toLowerCase());
             config.setSeeds(seeds);
         }
         if (jsonObject.has(WARMUP_COMPLETIONS.name().toLowerCase())) {
@@ -167,11 +175,11 @@ public class ConfigParser {
     }
 
     private static void parseBatch(@NotNull JSONObject jsonObject, SimulationConfig config) {
-        if (jsonObject.has(BATCH_LENGTH.name().toLowerCase())) {
-            config.setBatchLength(jsonObject.getInt(BATCH_LENGTH.name().toLowerCase()));
+        if (jsonObject.has(BATCH_SIZE.name().toLowerCase())) {
+            config.setBatchSize(jsonObject.getInt(BATCH_SIZE.name().toLowerCase()));
         }
-        if (jsonObject.has(MAX_BATCHES.name().toLowerCase())) {
-            config.setMaxBatches(jsonObject.getInt(MAX_BATCHES.name().toLowerCase()));
+        if (jsonObject.has(BATCH_COUNT.name().toLowerCase())) {
+            config.setBatchCount(jsonObject.getInt(BATCH_COUNT.name().toLowerCase()));
         }
     }
 
@@ -355,6 +363,7 @@ public class ConfigParser {
             }
         }
 
+
         if (modeFlag && !anyProbabilistic) {
             String severe = "routing_mode=probabilistic ma nessuna regola con 'p' trovata in routing_matrix";
             SysLogger.getInstance().getLogger().severe(severe);
@@ -517,14 +526,16 @@ public class ConfigParser {
         INITIAL_ARRIVAL,
         SEEDS,
         WARMUP_COMPLETIONS,
-        BATCH_LENGTH,
-        MAX_BATCHES,
+        STATS_TYPE,
+        BATCH_SIZE,
+        BATCH_COUNT,
         SIMULATION_TYPE,
         LOAD_BALANCE,
         BALANCING,
         // NEW:
         ROUTING_MODE,
         SAFETY,
+        INITIAL_SEEDS,
         MAX_HOPS
     }
 }

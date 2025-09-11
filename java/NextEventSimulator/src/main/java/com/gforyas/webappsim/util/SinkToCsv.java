@@ -23,7 +23,7 @@ public class SinkToCsv {
     protected List<String> lines = new ArrayList<>();
     protected Path outputPath;
 
-    public SinkToCsv(int seed) {
+    public SinkToCsv(long seed) {
         String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
 
         // Prende solo il nome base del file di config (senza directory)
@@ -93,6 +93,9 @@ public class SinkToCsv {
             String severe = "issue in creating dir " + e.getMessage();
             SysLogger.getInstance().getLogger().severe(severe);
         }
+    }
+
+    public SinkToCsv() {
     }
 
     public void appendRecord(CsvHeader header, String value) {

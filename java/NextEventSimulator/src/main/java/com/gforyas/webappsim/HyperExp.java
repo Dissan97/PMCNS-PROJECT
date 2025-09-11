@@ -25,9 +25,9 @@ public class HyperExp {
         // Load config from a path
         SimulationConfig config = ConfigParser.getConfig(confPath);
         config.setRngs(rngs);
-        int tot = config.getNumArrivals() * 10 * config.getSeeds().size() * (numPaths > 0 ? numPaths : 1);
+
         int counter = 1;
-        for (var seed : config.getSeeds()) {
+        for (var seed = 0; seed <  config.getSeeds(); seed++){
             SinkObj5ToCsv sink = new SinkObj5ToCsv(seed);
             SinkConvergenceToCsv convergenceToCsv = new SinkConvergenceToCsv(seed);
             config.setSink(sink);
@@ -35,9 +35,7 @@ public class HyperExp {
 
             for (var prob = 1; prob < 10; prob++) {
                 for (var arrival = 0; arrival < config.getNumArrivals(); arrival++) {
-                    msg = String.format("launch for seed=%d, arrival=%d, probability=%f, run %d / %d", seed, arrival,
-                            prob / 10.0, counter++, tot);
-                    logger.info(msg);
+
                     Simulation simulation = new SimulationHyperExp(config, seed, prob / 10.0);
                     simulation.run();
                     Rngs.resetStreamId();

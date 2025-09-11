@@ -73,32 +73,32 @@ public class StatsCollector {
     public static final String OVERALL = "OVERALL";
 
     // --- Stimatori globali ---
-    private final ResponseTimeEstimator rt; // end-to-end (ARRIVAL esterno -> EXIT)
-    private final PopulationEstimator pop; // popolazione pesata nel tempo (traccia jobId)
-    private final CompletionsEstimator comp; // completamenti a EXIT
-    private final ObservationTimeEstimator ot; // finestra osservata
-    private final BusyTimeEstimator busy; // busy time globale
+    protected  ResponseTimeEstimator rt; // end-to-end (ARRIVAL esterno -> EXIT)
+    protected  PopulationEstimator pop; // popolazione pesata nel tempo (traccia jobId)
+    protected  CompletionsEstimator comp; // completamenti a EXIT
+    protected  ObservationTimeEstimator ot; // finestra osservata
+    protected  BusyTimeEstimator busy; // busy time globale
 
     // --- Stimatori per nodo ---
-    private final Map<String, ResponseTimeEstimatorNode> rtNode = new HashMap<>();
-    private final Map<String, PopulationEstimatorNode> popNode = new HashMap<>();
-    private final Map<String, CompletionsEstimatorNode> compNode = new HashMap<>();
-    private final Map<String, BusyTimeEstimatorNode> busyNode = new HashMap<>();
+    protected final Map<String, ResponseTimeEstimatorNode> rtNode = new HashMap<>();
+    protected final Map<String, PopulationEstimatorNode> popNode = new HashMap<>();
+    protected final Map<String, CompletionsEstimatorNode> compNode = new HashMap<>();
+    protected final Map<String, BusyTimeEstimatorNode> busyNode = new HashMap<>();
 
     // --- Collector per tempi per-job (A, B, P) ---
-    private final ResponseTimePerJobCollector perJobCollector;
+    private  ResponseTimePerJobCollector perJobCollector;
 
-    private BatchMeansWindow batchMeans = null;
-    private final double arrivalRate;
+
+    protected double arrivalRate;
 
     // --- Convergenze ---
-    private Map<Pair<String, String>, Double> convergence = new HashMap<>();
+    protected Map<Pair<String, String>, Double> convergence = new HashMap<>();
     private static final int EVENT_COUNT = 1000;
     private static int LIMIT = 100;
     private int times = 0;
     private boolean initial = true;
     private int counter = 0;
-    private final SinkToCsv sink;
+    private  SinkToCsv sink;
     private SinkConvergenceToCsv sinkConvergence;
 
     // Parametri tempo
@@ -119,7 +119,10 @@ public class StatsCollector {
     private int pathABAPA = 0;
     private int pathABABForced = 0;
     // Modalità routing per reporting CSV ("deterministic" | "probabilistic")
-    private final String routingMode;
+    private  String routingMode;
+
+
+    public StatsCollector(){}
 
     /**
      * Crea la facade e registra tutti gli stimatori/collector.
@@ -155,12 +158,6 @@ public class StatsCollector {
         rtNode.put("A", rtA);
         rtNode.put("B", rtB);
         rtNode.put("P", rtP);
-
-        int batchLength = cfg.getBatchLength();
-        int maxBatches = cfg.getMaxBatches();
-        if (batchLength != -1 && maxBatches != -1) {
-            this.batchMeans = new BatchMeansWindow(network, scheduler, routingMatrix, batchLength, maxBatches);
-        }
 
         // Collector per-job (CSV + campioni in memoria)
         Path perJobCsv = OUT_DIR.resolve("per_job_times.csv");
@@ -405,8 +402,6 @@ public class StatsCollector {
         }
         info = "Per-node metrics (measured)\n" + makeTable(HEADERS_NODE, perNodeRows);
         SysLogger.getInstance().getLogger().info(info);
-        printBatchesSummary(scheduler);
-
         // --- Riga OVERALL nel CSV ---
         sink.appendRecord(SinkToCsv.CsvHeader.SCOPE, OVERALL);
         sink.appendRecord(SinkToCsv.CsvHeader.ARRIVAL_RATE, fmt(arrivalRate));
@@ -451,7 +446,7 @@ public class StatsCollector {
         // if (perJobCollector != null) { perJobCollector.flushToDisk(); }
     }
 
-    private @NotNull PerNodeResult getPerNodeResult(String n, double elapsed) {
+    protected @NotNull PerNodeResult getPerNodeResult(String n, double elapsed) {
         WelfordEstimator wrt = rtNode.get(n).welfordEstimator;
         double sampleWait = wrt.getMean();
         double stdWn = wrt.getStddev();
@@ -466,7 +461,7 @@ public class StatsCollector {
         return new PerNodeResult(sampleWait, stdWn, samplePopulation, stdNn, sampleMean, util);
     }
 
-    private record PerNodeResult(double sampleWait, double stdWn, double samplePopulation, double stdNn,
+    protected record PerNodeResult(double sampleWait, double stdWn, double samplePopulation, double stdNn,
             double sampleMean, double util) {
     }
 
@@ -485,43 +480,7 @@ public class StatsCollector {
         return Math.max(0.0, varA + varB + varP + 2.0 * (covAB + covAP + covBP));
     }
 
-    private void printBatchesSummary(NextEventScheduler scheduler) {
-        if (batchMeans != null) {
-            batchMeans.finalizeAt(scheduler.getCurrentTime());
 
-            var headersSummary = List.of(
-                    "metric", "mean_of_means", "sample_std", "std_error");
-            BatchMeansSummary.MultiStats ms = BatchMeansSummary.summarizeAll(batchMeans.getResults());
-            var rowsSummary = new ArrayList<List<Object>>();
-            rowsSummary.add(List.of(MEAN_RESPONSE_TIME, ms.meanResponseTime().meanOfMeans,
-                    ms.meanResponseTime().sampleStd, ms.meanResponseTime().stdError));
-            rowsSummary.add(List.of("mean_response_time_weighted", ms.meanRtWeighted().weightedMean(), "-",
-                    ms.meanRtWeighted().stdError()));
-            rowsSummary.add(List.of("T_little(meanN/X)", ms.meanRtLittle().meanOfMeans, ms.meanRtLittle().sampleStd,
-                    ms.meanRtLittle().stdError));
-            rowsSummary.add(List.of(MEAN_POPULATION, ms.meanPopulation().meanOfMeans, ms.meanPopulation().sampleStd,
-                    ms.meanPopulation().stdError));
-            rowsSummary.add(List.of(THROUGHPUT, ms.throughput().meanOfMeans, ms.throughput().sampleStd,
-                    ms.throughput().stdError));
-            rowsSummary.add(List.of(UTILIZATION, ms.utilization().meanOfMeans, ms.utilization().sampleStd,
-                    ms.utilization().stdError));
-            rowsSummary.add(List.of("simulation_time(H)", ms.totalHours(), "-", "-"));
-            // Campi basati su covarianza non disponibili per batch con i dati attuali:
-            rowsSummary.add(List.of("std_response_time_cov", "-", "-", "-"));
-            rowsSummary.add(List.of("std_population_cov", "-", "-", "-"));
-
-            String tableSummary = "Batch-means (summary)\n" + makeTable(headersSummary, rowsSummary);
-            SysLogger.getInstance().getLogger().info(tableSummary);
-
-            BatchMeansSummary s = new BatchMeansSummary();
-            batchMeans.getResults().forEach(b -> s.add(b.meanRt));
-            BatchMeansSummary.Stats st = s.summarize();
-            String summary = String.format(Locale.ROOT,
-                    "BatchMeans RT: batches=%d, mean-of-means=%.6f, sample-std=%.6f, std-error=%.6f",
-                    st.batches, st.meanOfMeans, st.sampleStd, st.stdError);
-            SysLogger.getInstance().getLogger().info(summary);
-        }
-    }
 
     private double calculateOverallRtByVisits() {
         double a = rtNode.containsKey("A") ? rtNode.get("A").welfordEstimator.getMean() : 0.0;
@@ -588,9 +547,6 @@ public class StatsCollector {
         // Per-job
         if (perJobCollector != null)
             perJobCollector.startCollecting();
-        if (batchMeans != null) {
-            batchMeans.startAt(now);
-        }
     }
 
     // --- NEW: API per abilitare/riempire le metriche di percorso nel CSV ---

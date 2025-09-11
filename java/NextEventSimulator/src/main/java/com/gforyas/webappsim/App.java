@@ -2,6 +2,7 @@ package com.gforyas.webappsim;
 
 import com.gforyas.webappsim.lemer.Rngs;
 import com.gforyas.webappsim.logging.SysLogger;
+import com.gforyas.webappsim.simulator.SimulationFIFO;
 import com.gforyas.webappsim.simulator.SimulationType;
 import com.gforyas.webappsim.util.*;
 import com.gforyas.webappsim.simulator.Simulation;
@@ -70,10 +71,12 @@ public class App {
 
     private static void launch(boolean auto) {
         // Initialize RNG
-        Rngs rngs = new Rngs();
+
 
         // Load config from a path
         SimulationConfig config = ConfigParser.getConfig(App.cfgPath);
+        Rngs rngs = new Rngs();
+        rngs.plantSeeds(config.getInitialSeed());
         if (!auto) {
             askUserModification(config);
         } else {
@@ -86,9 +89,9 @@ public class App {
         String info = App.class.getSimpleName() + ": starting simulation with provided configuration\n" +
                 config;
         LOGGER.info(info);
-        for (var seed : config.getSeeds()) {
-            SinkToCsv sink = new SinkToCsv(seed);
-            SinkConvergenceToCsv convergenceToCsv = new SinkConvergenceToCsv(seed);
+        for (var seed = 0; seed < config.getSeeds(); seed ++) {
+            SinkToCsv sink = new SinkBatchToCsv(App.getCfgPath().replace(".json", ".csv"));
+            SinkConvergenceToCsv convergenceToCsv = new SinkConvergenceToCsv(rngs.getSeed());
             config.setSink(sink);
             config.setSinkConv(convergenceToCsv);
             for (var i = 0; i < config.getNumArrivals(); i++){
@@ -96,7 +99,8 @@ public class App {
                 simulation.run();
                 Rngs.resetStreamId();
             }
-            sink.sink();
+
+            //sink.sink();
             convergenceToCsv.sink();
         }
     }
