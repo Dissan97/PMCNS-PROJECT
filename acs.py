@@ -39,7 +39,7 @@ from math import sqrt
 
 
 # --- PARAMETRI ---
-K = 6000  # Massimo lag da calcolare (aumentato per un'analisi più approfondita)
+K = 1000  # Massimo lag da calcolare (aumentato per un'analisi più approfondita)
 FILENAME = "autocorrelation_data.txt"  # Nome del file da leggere
 
 # --- Inizializzazione ---
