@@ -117,6 +117,7 @@ public class Simulation {
             double svc = RVMS.idfExponential(meanService, rng.random(node.getStreamId()));
             Job job = new Job(cls, e.getTime(), svc);
             s.getJobTable().put(job.getId(), job);
+            e.setJobId(job.getId());
             totalExternalArrivals++;
             node.arrival(job, s);
         } else {

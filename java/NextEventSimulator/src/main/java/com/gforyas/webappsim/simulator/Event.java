@@ -12,6 +12,8 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class Event implements Comparable<Event> {
 
+
+
     /**
      * Enumeration of possible event types in the simulation.
      */
@@ -49,7 +51,7 @@ public class Event implements Comparable<Event> {
      * A value of {@code -1} indicates an external arrival (i.e., a job entering the system).
      * </p>
      */
-    private final int jobId;
+    private int jobId;
 
     /**
      * Class/type of the job (e.g., 1, 2, 3...).
@@ -87,6 +89,9 @@ public class Event implements Comparable<Event> {
     public Type getType() { return type; }
     public String getServer() { return server; }
     public int getJobId() { return jobId; }
+    public void setJobId(int id) {
+        this.jobId = id;
+    }
     public int getJobClass() { return jobClass; }
     public boolean isCancelled() { return cancelled; }
     public void cancel() { this.cancelled = true; }
