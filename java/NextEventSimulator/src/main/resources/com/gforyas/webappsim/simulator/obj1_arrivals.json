@@ -22,7 +22,7 @@
   "batch_size": 5070,
   "batch_count": 256,
   "stats_type": "BATCH",
-  "max_events": 1000000,
+  "max_events": 15000000,
   "initial_arrival": 0,
   "warmup_completions": 0
 }
