@@ -337,7 +337,7 @@ public class StatsCollector {
     public void calculateStats(NextEventScheduler scheduler, Network network) {
         // Finalizza busy intervals e popolazioni pesate al tempo corrente
         busy.finalizeBusy(scheduler.getCurrentTime());
-        for (BusyTimeEstimator b : busyNode.values()) {
+        for (var b : busyNode.values()) {
             b.finalizeBusy(scheduler.getCurrentTime());
         }
         pop.finalizeAt(scheduler.getCurrentTime());
