@@ -5,6 +5,7 @@ import com.gforyas.webappsim.logging.SysLogger;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -23,22 +24,22 @@ public class SinkBatchToCsv extends SinkToCsv {
     }
 
     private static final String OVERALL = "OVERALL";
-    private StringBuilder inMem;
+    private List<StringBuilder> inMem = new ArrayList<>();
 
     public void sink(List<BatchMeans.BatchStats> batches, Map<String, List<BatchMeans.BatchStats>> batchPerNode,
                      double arrivalRate) {
 
 
-        this.inMem = new StringBuilder();
-        Arrays.asList(CSVHeader.values()).forEach(s -> this.inMem.append(s).append(','));
-        this.inMem.replace(this.inMem.length() - 1, this.inMem.length(), "\n");
+        this.inMem.add(new StringBuilder());
+        StringBuilder builder = inMem.getLast();
+
         for (var i = 0; i < batches.size(); i++) {
-            appendBatchRecord(OVERALL, batches, arrivalRate, this.inMem, i);
+            appendBatchRecord(OVERALL, batches, arrivalRate, builder, i);
         }
 
         batchPerNode.keySet().forEach(node -> {
             for (var i = 0; i < batchPerNode.get(node).size(); i++) {
-                appendBatchRecord(node, batchPerNode.get(node), arrivalRate, this.inMem, i);
+                appendBatchRecord(node, batchPerNode.get(node), arrivalRate, builder, i);
             }
         });
 
@@ -50,8 +51,14 @@ public class SinkBatchToCsv extends SinkToCsv {
     public void sink() {
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(OUT_DIR.toFile().getPath()
                 + File.separator + filename, StandardCharsets.UTF_8))) {
-
-            writer.write(inMem.toString());
+            StringBuilder stringBuilder = new StringBuilder();
+            Arrays.asList(CSVHeader.values()).forEach(s -> stringBuilder.append(s).append(','));
+            stringBuilder.replace(stringBuilder.length() - 1, stringBuilder.length(), "\n");
+            writer.write(stringBuilder.toString());
+            writer.flush();
+            for (var builder : inMem) {
+                writer.write(builder.toString());
+            }
         } catch (IOException e) {
             String severe = "error " + e.getMessage();
             SysLogger.getInstance().getLogger().severe(severe);

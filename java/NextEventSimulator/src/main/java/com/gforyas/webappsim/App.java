@@ -2,6 +2,7 @@ package com.gforyas.webappsim;
 
 import com.gforyas.webappsim.lemer.Rngs;
 import com.gforyas.webappsim.logging.SysLogger;
+import com.gforyas.webappsim.simulator.SimulationHyperExp;
 import com.gforyas.webappsim.simulator.SimulationType;
 import com.gforyas.webappsim.util.*;
 import com.gforyas.webappsim.simulator.Simulation;
@@ -98,6 +99,7 @@ public class App {
             }
 
             for (var i = 0; i < config.getNumArrivals(); i++){
+                config.setCurrentArrivalRate(config.getArrivalRate(i));
                 Simulation simulation = SimulationType.Builder.build(config, seed);
                 simulation.run();
                 Rngs.resetStreamId();

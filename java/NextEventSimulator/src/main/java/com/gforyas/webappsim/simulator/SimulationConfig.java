@@ -95,14 +95,19 @@ public class SimulationConfig {
     // =========================
 
     /** @return tasso di arrivo esterno λ (iterando la lista se multipla). */
-    public double getArrivalRate() {
-        int index = ARRIVAL_RATE_INDEX.getAndIncrement();
-        if (index >= arrivalRate.size()) {
-            ARRIVAL_RATE_INDEX.set(0);
-            index = arrivalRate.size() - 1;
-        }
+    public double getArrivalRate(int index) {
         return arrivalRate.get(index);
     }
+
+    public double getArrivalRate() {
+        return this.currentArrivalRate;
+    }
+
+    public void setCurrentArrivalRate(double currentArrivalRate) {
+        this.currentArrivalRate = currentArrivalRate;
+    }
+
+    double currentArrivalRate = 1.2;
 
     public int getNumArrivals(){
         return arrivalRate.size();
