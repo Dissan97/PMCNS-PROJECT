@@ -142,9 +142,8 @@ public class StatsCollector {
 
         // Per-nodo
         for (String n : network.allNodes()) {
-            if (!(n.equals("A") || n.equals("B") || n.equals("P"))) {
-                rtNode.put(n, new ResponseTimeEstimatorNode(scheduler, n, routingMatrix));
-            }
+
+            rtNode.put(n, new ResponseTimeEstimatorNode(scheduler, n, routingMatrix));
             popNode.put(n, new PopulationEstimatorNode(scheduler, n));
             compNode.put(n, new CompletionsEstimatorNode(scheduler, n, routingMatrix));
             busyNode.put(n, new BusyTimeEstimatorNode(scheduler, n));
@@ -154,10 +153,6 @@ public class StatsCollector {
         ResponseTimeEstimatorNode rtA = new ResponseTimeEstimatorNode(scheduler, "A", routingMatrix);
         ResponseTimeEstimatorNode rtB = new ResponseTimeEstimatorNode(scheduler, "B", routingMatrix);
         ResponseTimeEstimatorNode rtP = new ResponseTimeEstimatorNode(scheduler, "P", routingMatrix);
-        rtNode.put("A", rtA);
-        rtNode.put("B", rtB);
-        rtNode.put("P", rtP);
-
         // Collector per-job (CSV + campioni in memoria)
         Path perJobCsv = OUT_DIR.resolve("per_job_times.csv");
         perJobCollector = new ResponseTimePerJobCollector(
@@ -168,6 +163,8 @@ public class StatsCollector {
 
         // NEW: memorizza la modalità di routing per reporting CSV
         this.routingMode = cfg.isProbabilistic() ? "probabilistic" : "deterministic";
+
+
     }
 
     // ---------------- Convergenza (immutata) ----------------

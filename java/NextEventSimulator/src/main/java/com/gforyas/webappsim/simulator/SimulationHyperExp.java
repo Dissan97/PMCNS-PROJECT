@@ -17,7 +17,6 @@ public class SimulationHyperExp extends Simulation {
         this.maxEvents = cfg.getMaxEvents();
         this.network = new Network(serviceRates);
         this.rng = cfg.getRngs();
-        this.rng.plantSeeds(seed);
         this.warmupCompletions = cfg.getWarmupCompletions();
 
         // NEW: costruzione router (retro-compatibile)
