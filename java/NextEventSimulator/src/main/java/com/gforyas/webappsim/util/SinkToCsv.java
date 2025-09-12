@@ -1,7 +1,10 @@
 package com.gforyas.webappsim.util;
 
+import com.gforyas.webappsim.App;
+import com.gforyas.webappsim.estimators.StatsType;
 import com.gforyas.webappsim.logging.SysLogger;
 import com.gforyas.webappsim.simulator.Simulation;
+import com.gforyas.webappsim.simulator.SimulationConfig;
 
 import java.io.*;
 import java.nio.file.Files;
@@ -133,7 +136,12 @@ public class SinkToCsv {
             SysLogger.getInstance().getLogger().severe(severe);
         }
     }
-
+    public static SinkToCsv build (SimulationConfig config) {
+        if (Objects.requireNonNull(config.getStatsType()) == StatsType.BATCH) {
+            return new SinkBatchToCsv(config.getFilename().replace(".json", ".csv"));
+        }
+        return new SinkToCsv(config.getRngs().getSeed());
+    }
     public enum CsvHeader {
         // Campi esistenti
         SCOPE,

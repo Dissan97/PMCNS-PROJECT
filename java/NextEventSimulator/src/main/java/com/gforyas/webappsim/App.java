@@ -2,7 +2,6 @@ package com.gforyas.webappsim;
 
 import com.gforyas.webappsim.lemer.Rngs;
 import com.gforyas.webappsim.logging.SysLogger;
-import com.gforyas.webappsim.simulator.SimulationFIFO;
 import com.gforyas.webappsim.simulator.SimulationType;
 import com.gforyas.webappsim.util.*;
 import com.gforyas.webappsim.simulator.Simulation;
@@ -89,19 +88,26 @@ public class App {
         String info = App.class.getSimpleName() + ": starting simulation with provided configuration\n" +
                 config;
         LOGGER.info(info);
+        config.setFilename(App.cfgPath);
         for (var seed = 0; seed < config.getSeeds(); seed ++) {
-            SinkToCsv sink = new SinkBatchToCsv(App.getCfgPath().replace(".json", ".csv"));
+            SinkToCsv sink = SinkToCsv.build(config);
             SinkConvergenceToCsv convergenceToCsv = new SinkConvergenceToCsv(rngs.getSeed());
             config.setSink(sink);
-            config.setSinkConv(convergenceToCsv);
+            if (config.getBatchSize() <= 0 && config.getBatchCount() <= 0){
+                config.setSinkConv(convergenceToCsv);
+            }
+
             for (var i = 0; i < config.getNumArrivals(); i++){
                 Simulation simulation = SimulationType.Builder.build(config, seed);
                 simulation.run();
                 Rngs.resetStreamId();
             }
-
-            sink.sink();
-            convergenceToCsv.sink();
+            try {
+                sink.sink();
+                convergenceToCsv.sink();
+            } catch (NullPointerException ignore) {
+                // convergence maybe null
+            }
         }
     }
 
