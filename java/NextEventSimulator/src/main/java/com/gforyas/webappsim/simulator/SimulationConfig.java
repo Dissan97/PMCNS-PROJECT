@@ -19,10 +19,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class SimulationConfig {
 
-    private int warmupCompletions = 10_000; // default sensato
+    private int warmupCompletions = 0; // default sensato
     private SinkToCsv sink;
     private SinkConvergenceToCsv sinkConv;
-    private int initialSeed = 123456789;
+    private int initialSeed = 314159265;
     private StatsType statsType = StatsType.NORMAL;
     ;
 
