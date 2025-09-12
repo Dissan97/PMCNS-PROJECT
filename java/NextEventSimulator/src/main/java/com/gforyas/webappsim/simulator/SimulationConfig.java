@@ -24,6 +24,7 @@ public class SimulationConfig {
     private SinkConvergenceToCsv sinkConv;
     private int initialSeed = 314159265;
     private StatsType statsType = StatsType.NORMAL;
+    private String filename;
     ;
 
     public int getWarmupCompletions() {
@@ -285,5 +286,13 @@ public class SimulationConfig {
 
     public void setStatsType(StatsType statsType) {
         this.statsType = statsType;
+    }
+
+    public String getFilename() {
+        return filename;
+    }
+
+    public void setFilename(String filename) {
+        this.filename = filename;
     }
 }

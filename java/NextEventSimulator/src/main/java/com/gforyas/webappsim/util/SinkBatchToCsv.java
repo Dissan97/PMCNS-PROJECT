@@ -21,26 +21,39 @@ public class SinkBatchToCsv extends SinkToCsv {
     public SinkBatchToCsv(String filename) {
         this.filename = filename;
     }
+
     private static final String OVERALL = "OVERALL";
+    private StringBuilder inMem;
+
     public void sink(List<BatchMeans.BatchStats> batches, Map<String, List<BatchMeans.BatchStats>> batchPerNode,
                      double arrivalRate) {
+
+
+        this.inMem = new StringBuilder();
+        Arrays.asList(CSVHeader.values()).forEach(s -> this.inMem.append(s).append(','));
+        this.inMem.replace(this.inMem.length() - 1, this.inMem.length(), "\n");
+        for (var i = 0; i < batches.size(); i++) {
+            appendBatchRecord(OVERALL, batches, arrivalRate, this.inMem, i);
+        }
+
+        batchPerNode.keySet().forEach(node -> {
+            for (var i = 0; i < batchPerNode.get(node).size(); i++) {
+                appendBatchRecord(node, batchPerNode.get(node), arrivalRate, this.inMem, i);
+            }
+        });
+
+
+
+    }
+
+    @Override
+    public void sink() {
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(OUT_DIR.toFile().getPath()
                 + File.separator + filename, StandardCharsets.UTF_8))) {
 
-            StringBuilder stringBuilder = new StringBuilder();
-            Arrays.asList(CSVHeader.values()).forEach(s -> stringBuilder.append(s).append(','));
-            stringBuilder.replace(stringBuilder.length() - 1, stringBuilder.length(), "\n");
-            for (var i = 0; i < batches.size(); i++) {
-                appendBatchRecord(OVERALL, batches, arrivalRate, stringBuilder, i);
-            }
-
-            batchPerNode.keySet().forEach(node -> {
-                for (var i = 0; i < batchPerNode.get(node).size(); i++) {
-                    appendBatchRecord(node, batchPerNode.get(node), arrivalRate, stringBuilder, i);
-                }});
-            writer.write(stringBuilder.toString());
+            writer.write(inMem.toString());
         } catch (IOException e) {
-            String severe = "errore " + e.getMessage();
+            String severe = "error " + e.getMessage();
             SysLogger.getInstance().getLogger().severe(severe);
         }
     }
@@ -61,7 +74,7 @@ public class SinkBatchToCsv extends SinkToCsv {
     }
 
 
-    public  enum CSVHeader{
+    public enum CSVHeader {
         SCOPE,
         ARRIVAL_RATE,
         BATCH_NUM,
