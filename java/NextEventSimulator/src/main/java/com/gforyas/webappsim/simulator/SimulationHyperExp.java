@@ -2,6 +2,7 @@ package com.gforyas.webappsim.simulator;
 
 import com.gforyas.webappsim.estimators.StatsCollector;
 import com.gforyas.webappsim.logging.SysLogger;
+import com.gforyas.webappsim.simulator.arrivals.HyperExpArrGen;
 import com.gforyas.webappsim.simulator.router.DeterministicRouter;
 import com.gforyas.webappsim.simulator.router.ProbabilisticRouter;
 
