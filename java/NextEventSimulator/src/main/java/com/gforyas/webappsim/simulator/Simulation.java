@@ -1,6 +1,8 @@
 package com.gforyas.webappsim.simulator;
 
+import com.gforyas.webappsim.estimators.BatchMeans;
 import com.gforyas.webappsim.estimators.StatsCollector;
+import com.gforyas.webappsim.estimators.StatsType;
 import com.gforyas.webappsim.lemer.Rngs;
 import com.gforyas.webappsim.lemer.Rvms;
 import com.gforyas.webappsim.logging.SysLogger;
@@ -57,14 +59,13 @@ public class Simulation {
     private int countABAPA = 0;
     private int countABABForced = 0;
 
-    public Simulation(SimulationConfig cfg, long seed) {
+    public Simulation(SimulationConfig cfg) {
         double arrivalRate = cfg.getArrivalRate();
         Map<String, Map<String, Double>> serviceRates = cfg.getServiceRates();
         this.routingMatrix = cfg.getRoutingMatrix();
         this.maxEvents = cfg.getMaxEvents();
         this.network = new Network(serviceRates);
         this.rng = cfg.getRngs();
-        this.rng.plantSeeds(seed);
         this.warmupCompletions = cfg.getWarmupCompletions();
 
         // NEW: costruzione router (retro-compatibile)
@@ -83,9 +84,7 @@ public class Simulation {
         this.arrivalGenerator = new ArrivalGenerator(scheduler, arrivalRate, "A", 1, rng);
         scheduler.subscribe(Event.Type.ARRIVAL, this::onArrival);
         scheduler.subscribe(Event.Type.DEPARTURE, this::onDeparture);
-        this.statsCollector = new StatsCollector(network, scheduler, routingMatrix,
-                cfg, arrivalRate);
-
+        this.statsCollector =  StatsType.build(network,scheduler, routingMatrix, cfg);
         // Se warmup <= 0, misura da subito
         if (warmupCompletions <= 0) {
             statsCollector.startMeasurement(scheduler);
@@ -116,8 +115,9 @@ public class Simulation {
                 return;
             }
             double svc = RVMS.idfExponential(meanService, rng.random(node.getStreamId()));
-            Job job = new Job(cls, s.getCurrentTime(), svc);
+            Job job = new Job(cls, e.getTime(), svc);
             s.getJobTable().put(job.getId(), job);
+            e.setJobId(job.getId());
             totalExternalArrivals++;
             node.arrival(job, s);
         } else {
@@ -184,7 +184,7 @@ public class Simulation {
         // --- gestione EXIT unificata ---
         if (isExit) {
             totalCompletedJobs++;
-
+            e.cancel();
             // contabilizza percorso SOLO in probabilistico
             if (router.isProbabilistic()) {
                 PathTracker pt = pathTrackers.remove(job.getId());
@@ -275,8 +275,6 @@ public class Simulation {
         // final stats + close progress line at 100%
         double elapsedSec = (System.nanoTime() - wallStart) / 1e9;
         double rateEvPerSec = elapsedSec > 0 ? cnt / elapsedSec : 0.0;
-        Printer.out().progress(renderProgress(100, rateEvPerSec, 0.0, barWidth));
-        Printer.out().progressDone();
 
         if (!measuring) {
             SysLogger.getInstance().getLogger()
@@ -285,8 +283,8 @@ public class Simulation {
 
         // --- NEW: passa le metriche di percorso allo StatsCollector SOLO se probabilistico ---
         if (router.isProbabilistic()) {
-            statsCollector.enableRoutingPathStats(true);
-            statsCollector.setRoutingPathCounts(countAB, countABAPA, countABABForced);
+            //statsCollector.enableRoutingPathStats(true);
+            //statsCollector.setRoutingPathCounts(countAB, countABAPA, countABABForced);
         }
 
         statsCollector.calculateStats(scheduler, network);
@@ -299,7 +297,9 @@ public class Simulation {
             );
             SysLogger.getInstance().getLogger().info(msg);
         }
-
+        if (this.statsCollector instanceof BatchMeans bm) {
+            System.out.println(bm.summary());
+        }
         long wallEnd = System.nanoTime();
         String finalOutput = String.format("Simulation %d Completed: external=%d, done=%d, took=%f s",
                 SIMULATION_COUNTER.incrementAndGet(),

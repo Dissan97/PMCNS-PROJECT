@@ -68,7 +68,7 @@ public class PVarLoop {
         String info = App.class.getSimpleName() + ": starting simulation with provided configuration\n" +
                 config;
         LOGGER.info(info);
-        for (var seed : config.getSeeds()) {
+        for (var seed = 0; seed <  config.getSeeds(); seed++) {
             for (var prob = minP; prob <= maxP; prob+=stepP) {
                 config.getProbRoutingTable().get("A").get(2).get(0).setP(prob);
                 config.getProbRoutingTable().get("A").get(2).get(1).setP(1-prob);

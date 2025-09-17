@@ -90,8 +90,8 @@ public class ArrivalGenerator {
         if (!active || ev instanceof BootstrapEvent) return;
         if (ev.getJobId() == -1 && targetNode.equals(ev.getServer())) {
             double ia = RVMS.idfExponential(1.0 / rate, rng.random(this.streamId));
-            Event nextExternal = new Event(0.0, Event.Type.ARRIVAL, targetNode, -1, jobClass);
-            scheduler.scheduleAt(nextExternal, scheduler.getCurrentTime() + ia);
+            Event nextExternal = new Event(scheduler.getCurrentTime() + ia , Event.Type.ARRIVAL, targetNode, -1, jobClass);
+            scheduler.scheduleAt(nextExternal, nextExternal.getTime());
         }
     }
 

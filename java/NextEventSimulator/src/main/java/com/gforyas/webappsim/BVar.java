@@ -68,7 +68,7 @@ public class BVar {
         String info = App.class.getSimpleName() + ": starting simulation with provided configuration\n" +
                 config;
         LOGGER.info(info);
-        for (var seed : config.getSeeds()) {
+        for (var seed = 0; seed <  config.getSeeds(); seed++){
             final int MIN_CENT = (int) Math.round(min  * 100);
     final int MAX_CENT = (int) Math.round(max  * 100);
     final int STEP_CENT = (int) Math.round(step * 100);

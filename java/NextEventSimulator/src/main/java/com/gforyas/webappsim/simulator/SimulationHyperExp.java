@@ -2,6 +2,7 @@ package com.gforyas.webappsim.simulator;
 
 import com.gforyas.webappsim.estimators.StatsCollector;
 import com.gforyas.webappsim.logging.SysLogger;
+import com.gforyas.webappsim.simulator.arrivals.HyperExpArrGen;
 import com.gforyas.webappsim.simulator.router.DeterministicRouter;
 import com.gforyas.webappsim.simulator.router.ProbabilisticRouter;
 
@@ -17,7 +18,6 @@ public class SimulationHyperExp extends Simulation {
         this.maxEvents = cfg.getMaxEvents();
         this.network = new Network(serviceRates);
         this.rng = cfg.getRngs();
-        this.rng.plantSeeds(seed);
         this.warmupCompletions = cfg.getWarmupCompletions();
 
         // NEW: costruzione router (retro-compatibile)

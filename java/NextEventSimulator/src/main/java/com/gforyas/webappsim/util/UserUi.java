@@ -60,7 +60,8 @@ public class UserUi {
                 case 2 -> setMaxEvents(cfg);
                 case 3 -> setInitialArrivals(cfg);
                 case 4 -> editServiceRate(cfg);
-                case 5 -> editSeeds(cfg);
+                case 5 -> {return false;}
+
                 case 6 -> editWarmUp(cfg);
                 case 7 -> editBatches(cfg);
                 case 8 -> printSummary(cfg);
@@ -89,7 +90,7 @@ public class UserUi {
         out.info("Initial arrivals: " + cfg.getInitialArrival());
         out.info("Seeds: " + cfg.getSeeds());
         out.info("Warmup Completions: " + cfg.getWarmupCompletions());
-        out.info("Batch Length: " + cfg.getBatchLength() + " Max Batch: " + cfg.getMaxBatches());
+        out.info("Batch Length: " + cfg.getBatchSize() + " Max Batch: " + cfg.getBatchCount());
         Map<String, Map<String, Double>> sr = cfg.getServiceRates();
         if (sr != null && !sr.isEmpty()) {
             out.info("Service rates (node → class → mean S):");
@@ -160,17 +161,17 @@ public class UserUi {
 
     private void editBatches(SimulationConfig cfg) {
         out.info("Edit batches:\n Current setup Batch Length: "
-                + cfg.getBatchLength() + " Max Batch: " + cfg.getMaxBatches());
+                + cfg.getBatchSize() + " Max Batch: " + cfg.getBatchCount());
         int batchLength = askAnyInt("Batch length");
         if (batchLength <= 0) {
-            batchLength = cfg.getBatchLength();
+            batchLength = cfg.getBatchSize();
         }
-        cfg.setBatchLength(batchLength);
+        cfg.setBatchSize(batchLength);
         int maxBatch = askAnyInt("Max Batch");
         if (maxBatch <= 0) {
-            maxBatch = cfg.getMaxBatches();
+            maxBatch = cfg.getBatchCount();
         }
-        cfg.setMaxBatches(maxBatch);
+        cfg.setBatchCount(maxBatch);
     }
 
     private void editWarmUp(SimulationConfig cfg) {
@@ -183,49 +184,7 @@ public class UserUi {
         cfg.setWarmupCompletions(warmup);
 
     }
-    /**
-     * Opens a mini-menu to replace or append seeds.
-     * Validates integer parsing and shows the resulting list.
-     */
-    private void editSeeds(SimulationConfig cfg) {
-        List<Integer> seeds = new ArrayList<>(cfg.getSeeds() != null ? cfg.getSeeds() : List.of());
-        boolean back = false;
-        while (!back) {
-            out.header("Seeds Editor");
-            out.info("Current seeds: " + seeds);
-            out.info("1) Replace all");
-            out.info("2) Add one");
-            out.info("3) Remove one");
-            out.info("4) Done");
-            int ch = askInt("Enter choice [1-4]: ", 1, 4);
-            switch (ch) {
-                case 1 -> {
-                    String line = askNonEmpty("Enter comma-separated integers: ");
-                    List<Integer> newSeeds = parseSeeds(line);
-                    seeds.clear();
-                    seeds.addAll(newSeeds);
-                    out.info("Seeds replaced.");
-                }
-                case 2 -> {
-                    int s = askAnyInt("Enter integer seed: ");
-                    seeds.add(s);
-                    out.info("Seed added.");
-                }
-                case 3 -> {
-                    int s = askAnyInt("Enter integer seed to remove: ");
-                    if (seeds.remove((Integer) s)) {
-                        out.info("Seed removed.");
-                    } else {
-                        out.warn("Seed not found.");
-                    }
-                }
-                case 4 -> back = true;
-                default -> out.warn("Invalid choice.");
-            }
-        }
-        cfg.setSeeds(seeds);
-        out.info("Final seeds: " + seeds);
-    }
+
 
     /** Parses a comma-separated list of integers into a List<Integer>. */
     private List<Integer> parseSeeds(String text) {

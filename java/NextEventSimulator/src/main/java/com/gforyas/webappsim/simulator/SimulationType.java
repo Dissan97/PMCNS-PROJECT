@@ -43,10 +43,10 @@ public enum SimulationType {
                     return new SimulationLB(config, seed, policy);
                 }
                 case FIFO -> {
-                    return new SimulationFIFO(config, seed);
+                    return new SimulationFIFO(config);
                 }
                 default -> {
-                    return new Simulation(config, seed);
+                    return new Simulation(config);
                 }
             }
 
